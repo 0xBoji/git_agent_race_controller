@@ -4,6 +4,28 @@
 
 It is designed for multi-agent coding setups on a shared LAN where multiple autonomous agents might otherwise check out and overwrite the same branch at the same time.
 
+## Install
+
+From crates.io once published:
+
+```bash
+cargo install garc
+```
+
+If you want the same curl/bash install flow as `camp`:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/0xBoji/git_agent_race_controller/main/scripts/install.sh)
+```
+
+And if you want to install directly from GitHub:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/0xBoji/git_agent_race_controller/main/scripts/install.sh) --git
+```
+
+The installer tries crates.io first, then falls back to GitHub automatically.
+
 ## What it does
 
 - checks the local CAMP mesh before `checkout`

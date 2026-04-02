@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 description = "Git Agent Race Controller"
 license = "MIT"
+repository = "https://github.com/0xBoji/git_agent_race_controller"
+homepage = "https://github.com/0xBoji/git_agent_race_controller"
+documentation = "https://github.com/0xBoji/git_agent_race_controller#readme"
+readme = "README.md"
+keywords = ["git", "cli", "mdns", "agent", "automation"]
+categories = ["command-line-utilities", "development-tools"]
 rust-version = "1.85"
 
 [dependencies]
