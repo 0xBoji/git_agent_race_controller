@@ -3,7 +3,7 @@ use std::{
     env, fs,
     path::{Path, PathBuf},
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -19,6 +19,8 @@ const INTENT_BRANCH: &str = "intent_branch";
 const CLAIM_PORT_FALLBACK: u16 = 7000;
 const CLAIM_STATE_FILE_NAME: &str = "claim-state.json";
 const LAST_TRACE_FILE_NAME: &str = "last-checkout-trace.json";
+const TRACE_HISTORY_DIR_NAME: &str = "trace-history";
+const TRACE_HISTORY_LIMIT: usize = 10;
 const CLAIM_DISCOVERY_RETRIES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -270,6 +272,21 @@ pub fn write_last_checkout_trace(git_dir: &Path, trace: &impl Serialize) -> Resu
         serde_json::to_string_pretty(trace).context("failed to serialize last checkout trace")?;
     fs::write(&path, format!("{contents}\n"))
         .with_context(|| format!("failed to write last checkout trace `{}`", path.display()))?;
+    let history_dir = trace_history_dir(git_dir);
+    fs::create_dir_all(&history_dir).with_context(|| {
+        format!(
+            "failed to create trace history directory `{}`",
+            history_dir.display()
+        )
+    })?;
+    let history_entry_path = history_dir.join(next_trace_history_file_name()?);
+    fs::write(&history_entry_path, format!("{contents}\n")).with_context(|| {
+        format!(
+            "failed to write trace history entry `{}`",
+            history_entry_path.display()
+        )
+    })?;
+    prune_trace_history(&history_dir)?;
     Ok(path)
 }
 
@@ -353,6 +370,39 @@ fn garc_state_dir(git_dir: &Path) -> PathBuf {
     git_dir.join("garc")
 }
 
+fn trace_history_dir(git_dir: &Path) -> PathBuf {
+    garc_state_dir(git_dir).join(TRACE_HISTORY_DIR_NAME)
+}
+
+fn next_trace_history_file_name() -> Result<String> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before UNIX_EPOCH")?;
+    Ok(format!("{:020}.json", now.as_nanos()))
+}
+
+fn prune_trace_history(history_dir: &Path) -> Result<()> {
+    let mut entries = fs::read_dir(history_dir)?
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|file_type| file_type.is_file())
+                .map(|_| entry.path())
+        })
+        .collect::<Vec<_>>();
+    entries.sort();
+
+    let excess = entries.len().saturating_sub(TRACE_HISTORY_LIMIT);
+    for path in entries.into_iter().take(excess) {
+        fs::remove_file(&path)
+            .with_context(|| format!("failed to prune trace history entry `{}`", path.display()))?;
+    }
+
+    Ok(())
+}
+
 pub fn retry_backoff_ms(attempt: usize) -> u64 {
     // The backoff stays intentionally tiny and capped. We only want enough breathing room for
     // LAN discovery jitter to settle, not a long retry ladder that makes contested checkouts
@@ -366,7 +416,12 @@ pub fn retry_backoff_ms(attempt: usize) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::retry_backoff_ms;
+    use std::fs;
+
+    use anyhow::Result;
+    use tempfile::TempDir;
+
+    use super::{retry_backoff_ms, write_last_checkout_trace};
 
     #[test]
     fn retry_backoff_grows_without_exploding() {
@@ -374,5 +429,26 @@ mod tests {
         assert_eq!(retry_backoff_ms(1), 50);
         assert_eq!(retry_backoff_ms(2), 100);
         assert_eq!(retry_backoff_ms(3), 100);
+    }
+
+    #[test]
+    fn persisted_trace_history_is_bounded() -> Result<()> {
+        let tempdir = TempDir::new()?;
+        let git_dir = tempdir.path().join(".git");
+        fs::create_dir_all(&git_dir)?;
+
+        for index in 0..12 {
+            let trace = serde_json::json!({
+                "status": "checked_out",
+                "requested_branch": format!("feature-{index}")
+            });
+            write_last_checkout_trace(&git_dir, &trace)?;
+        }
+
+        let history_dir = git_dir.join("garc/trace-history");
+        let history_entries = fs::read_dir(&history_dir)?.count();
+        assert_eq!(history_entries, 10);
+        assert!(git_dir.join("garc/last-checkout-trace.json").exists());
+        Ok(())
     }
 }
