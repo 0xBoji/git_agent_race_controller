@@ -233,7 +233,7 @@ If `--limit` is provided together with `--history`, the `history` array should c
 - **Most Recent Trace Pointer:** `last-checkout-trace.json` should always reflect the newest recorded checkout trace, even when history retention is enabled.
 - **Override Precedence:** If `--claim-settle-ms` is provided, it overrides `.camp.toml` for that invocation only and must not rewrite the config file.
 - **Mesh Re-read Reliability:** After publishing a claim, GARC may retry mesh re-read a small number of times before failing closed. Retries must prefer safety and determinism over speed.
-- **Retry Backoff Policy:** Mesh re-read retries should use a bounded backoff schedule rather than a tight constant loop, so local LAN jitter can settle without turning one checkout into a long stall.
+- **Retry Backoff Policy:** Mesh re-read retries should use a bounded adaptive schedule derived from `claim_settle_ms` rather than a fixed constant ladder, so small settle windows stay fast while larger windows give the LAN more time to settle.
 - **Performance:** The claim handshake should add only a short settle window appropriate for LAN discovery. Correctness is more important than chasing a < 2ms idealized path.
 
 ## 9. Verification Requirements

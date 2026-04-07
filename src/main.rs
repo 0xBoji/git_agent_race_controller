@@ -34,7 +34,8 @@ use crate::{
     mesh::{
         LocalClaimState, discover_peers, discover_peers_with_retry,
         discover_peers_with_retry_metadata, publish_branch_claim, read_last_checkout_trace,
-        read_local_claim_state, read_trace_history, update_local_branch, write_last_checkout_trace,
+        read_local_claim_state, read_trace_history, retry_backoff_schedule, update_local_branch,
+        write_last_checkout_trace,
     },
     output::{
         ActiveClaimSummary, CheckoutOutput, CheckoutStatus, CommitOutput, CommitStatus,
@@ -179,9 +180,11 @@ fn run_checkout(
                 "claim_settle_complete".to_owned(),
             );
         }
-        let (peers, read_attempts) = discover_peers_with_retry_metadata(&config)?;
-        let mesh_read_backoff_ms = (0..read_attempts.saturating_sub(1))
-            .map(crate::mesh::retry_backoff_ms)
+        let retry_schedule = retry_backoff_schedule(claim_settle_ms);
+        let (peers, read_attempts) = discover_peers_with_retry_metadata(&config, &retry_schedule)?;
+        let mesh_read_backoff_ms = retry_schedule
+            .into_iter()
+            .take(read_attempts.saturating_sub(1))
             .collect::<Vec<_>>();
         decision_trace.push(format!("observed_peer_count:{}", peers.len()));
         decision_trace.push(format!("mesh_read_attempts:{read_attempts}"));

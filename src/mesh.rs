@@ -170,19 +170,23 @@ pub fn publish_branch_claim(
 }
 
 pub fn discover_peers_with_retry(config: &CampConfig) -> Result<Vec<MeshPeer>> {
-    discover_peers_with_retry_metadata(config).map(|(peers, _)| peers)
+    let schedule = retry_backoff_schedule(config.claim_settle_ms());
+    discover_peers_with_retry_metadata(config, &schedule).map(|(peers, _)| peers)
 }
 
-pub fn discover_peers_with_retry_metadata(config: &CampConfig) -> Result<(Vec<MeshPeer>, usize)> {
+pub fn discover_peers_with_retry_metadata(
+    config: &CampConfig,
+    retry_schedule: &[u64],
+) -> Result<(Vec<MeshPeer>, usize)> {
     let mut last_error = None;
 
-    for attempt in 0..CLAIM_DISCOVERY_RETRIES {
+    for attempt in 0..=retry_schedule.len() {
         match discover_peers(config) {
             Ok(peers) => return Ok((peers, attempt + 1)),
             Err(error) => {
                 last_error = Some(error);
-                if attempt + 1 < CLAIM_DISCOVERY_RETRIES {
-                    thread::sleep(Duration::from_millis(retry_backoff_ms(attempt)));
+                if let Some(backoff_ms) = retry_schedule.get(attempt) {
+                    thread::sleep(Duration::from_millis(*backoff_ms));
                 }
             }
         }
@@ -507,14 +511,18 @@ fn prune_trace_history(history_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn retry_backoff_ms(attempt: usize) -> u64 {
-    // The backoff stays intentionally tiny and capped. We only want enough breathing room for
-    // LAN discovery jitter to settle, not a long retry ladder that makes contested checkouts
-    // feel hung from an operator's perspective.
-    match attempt {
-        0 => 25,
-        1 => 50,
-        _ => 100,
+pub fn retry_backoff_schedule(claim_settle_ms: u64) -> Vec<u64> {
+    let claim_settle_ms = claim_settle_ms.max(25);
+    if claim_settle_ms <= 50 {
+        vec![claim_settle_ms]
+    } else if claim_settle_ms <= 150 {
+        let first = claim_settle_ms / 3;
+        vec![first, claim_settle_ms - first]
+    } else {
+        let quarter = claim_settle_ms / 4;
+        let mut schedule = vec![quarter, quarter, claim_settle_ms - (quarter * 2)];
+        schedule.truncate(CLAIM_DISCOVERY_RETRIES);
+        schedule
     }
 }
 
@@ -588,14 +596,13 @@ mod tests {
     use anyhow::Result;
     use tempfile::TempDir;
 
-    use super::{retry_backoff_ms, write_last_checkout_trace};
+    use super::{retry_backoff_schedule, write_last_checkout_trace};
 
     #[test]
-    fn retry_backoff_grows_without_exploding() {
-        assert_eq!(retry_backoff_ms(0), 25);
-        assert_eq!(retry_backoff_ms(1), 50);
-        assert_eq!(retry_backoff_ms(2), 100);
-        assert_eq!(retry_backoff_ms(3), 100);
+    fn retry_schedule_adapts_to_claim_settle_window() {
+        assert_eq!(retry_backoff_schedule(25), vec![25]);
+        assert_eq!(retry_backoff_schedule(150), vec![50, 100]);
+        assert_eq!(retry_backoff_schedule(300), vec![75, 75, 150]);
     }
 
     #[test]
