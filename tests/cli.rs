@@ -25,6 +25,38 @@ fn init_installs_hook_and_returns_json() -> Result<()> {
 }
 
 #[test]
+fn trace_returns_structured_empty_json_when_no_trace_exists() -> Result<()> {
+    let harness = TestRepo::new("_garc-trace-empty._tcp.local.")?;
+
+    let output = harness.run(["trace", "--json"])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "empty");
+    assert!(json["latest"].is_null());
+    assert_eq!(json["history"].as_array().map(Vec::len), Some(0));
+    Ok(())
+}
+
+#[test]
+fn trace_returns_latest_and_history_json() -> Result<()> {
+    let harness = TestRepo::new("_garc-trace-history._tcp.local.")?;
+    harness.write_trace("feature-a", "checked_out")?;
+    harness.write_trace("feature-b", "diverted")?;
+
+    let output = harness.run(["trace", "--history", "--json"])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["latest"]["requested_branch"], "feature-b");
+    assert_eq!(json["history"].as_array().map(Vec::len), Some(2));
+    assert_eq!(json["history"][0]["requested_branch"], "feature-b");
+    assert_eq!(json["history"][1]["requested_branch"], "feature-a");
+    Ok(())
+}
+
+#[test]
 fn checkout_returns_json_when_branch_is_clear() -> Result<()> {
     let harness = TestRepo::new("_garc-checkout-clear._tcp.local.")?;
     harness.create_branch("feature-login")?;
@@ -426,6 +458,21 @@ impl TestRepo {
                 self.project_name, branch
             ),
         )?;
+        Ok(())
+    }
+
+    fn write_trace(&self, branch: &str, status: &str) -> Result<()> {
+        let garc_dir = self.repo_dir.join(".git").join("garc");
+        let history_dir = garc_dir.join("trace-history");
+        fs::create_dir_all(&history_dir)?;
+
+        let trace = format!(
+            "{{\n  \"status\": \"{status}\",\n  \"requested_branch\": \"{branch}\",\n  \"actual_branch\": \"{branch}\",\n  \"message\": \"trace\"\n}}\n"
+        );
+        fs::write(garc_dir.join("last-checkout-trace.json"), &trace)?;
+
+        let next_index = fs::read_dir(&history_dir)?.count() + 1;
+        fs::write(history_dir.join(format!("{next_index:020}.json")), trace)?;
         Ok(())
     }
 
