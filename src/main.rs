@@ -10,6 +10,7 @@ mod output;
 use std::{
     collections::BTreeMap,
     env,
+    io::Write,
     process::{Command as ProcessCommand, ExitCode},
     time::Instant,
 };
@@ -123,7 +124,7 @@ fn run_checkout(
             "force_bypass".to_owned(),
         );
         checkout_force_branch(&repo.repo, requested_branch)?;
-        update_local_state(&config_path, &mut config, requested_branch)?;
+        let camp_update_status = update_local_state(&config_path, &mut config, requested_branch)?;
         record_trace_entry(
             &mut decision_trace_entries,
             &started_at,
@@ -134,6 +135,7 @@ fn run_checkout(
             status: CheckoutStatus::Forced,
             requested_branch: requested_branch.to_owned(),
             occupied_by: None,
+            camp_update_status,
             decision_basis: DecisionBasis::ForceBypass,
             observed_claims: Vec::new(),
             observed_peers: Vec::new(),
@@ -203,7 +205,8 @@ fn run_checkout(
         match detect_collision(&peers, &project, requested_branch, &config.agent.id) {
             CollisionResult::Clear => {
                 checkout_existing_branch(&repo.repo, requested_branch)?;
-                update_local_state(&config_path, &mut config, requested_branch)?;
+                let camp_update_status =
+                    update_local_state(&config_path, &mut config, requested_branch)?;
                 if observed_claims.is_empty() {
                     decision_trace.push("mesh_clear".to_owned());
                     record_trace_entry(
@@ -230,6 +233,7 @@ fn run_checkout(
                     status: CheckoutStatus::CheckedOut,
                     requested_branch: requested_branch.to_owned(),
                     occupied_by: None,
+                    camp_update_status,
                     decision_basis: if observed_claims.is_empty() {
                         DecisionBasis::MeshClear
                     } else {
@@ -250,7 +254,8 @@ fn run_checkout(
             CollisionResult::Occupied { by } => {
                 let actual_branch = diverted_branch_name(requested_branch, &config.agent.id);
                 checkout_diverted_branch(&repo.repo, requested_branch, &actual_branch)?;
-                update_local_state(&config_path, &mut config, &actual_branch)?;
+                let camp_update_status =
+                    update_local_state(&config_path, &mut config, &actual_branch)?;
                 if active_occupier.is_some() {
                     decision_trace.push(format!("active_occupier:{by}"));
                     record_trace_entry(
@@ -277,6 +282,7 @@ fn run_checkout(
                     status: CheckoutStatus::Diverted,
                     requested_branch: requested_branch.to_owned(),
                     occupied_by: Some(by),
+                    camp_update_status,
                     decision_basis: if active_occupier.is_some() {
                         DecisionBasis::BranchOccupied
                     } else {
@@ -364,6 +370,9 @@ fn run_up(json: bool, config_arg: &std::path::Path) -> Result<()> {
 
     if json {
         print_up(&output, true)?;
+        std::io::stdout()
+            .flush()
+            .context("failed to flush up preamble")?;
     }
 
     let mut command = ProcessCommand::new("camp");
@@ -588,12 +597,17 @@ fn update_local_state(
     config_path: &std::path::Path,
     config: &mut CampConfig,
     branch: &str,
-) -> Result<()> {
+) -> Result<&'static str> {
     update_local_branch(config_path, config, branch)?;
-    let _ = ProcessCommand::new("camp")
+    match ProcessCommand::new("camp")
         .args(["update", "--branch", branch])
-        .status();
-    Ok(())
+        .status()
+    {
+        Ok(status) if status.success() => Ok("synced"),
+        Ok(_) => Ok("failed"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("skipped"),
+        Err(error) => Err(error).context("failed to execute `camp update`"),
+    }
 }
 
 #[cfg(test)]

@@ -28,6 +28,7 @@ pub struct CheckoutOutput {
     pub requested_branch: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub occupied_by: Option<String>,
+    pub camp_update_status: &'static str,
     pub decision_basis: DecisionBasis,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub observed_claims: Vec<String>,
@@ -148,6 +149,7 @@ pub fn print_checkout(output: &CheckoutOutput, json: bool) -> Result<()> {
         if let Some(occupied_by) = &output.occupied_by {
             println!("occupied by: {occupied_by}");
         }
+        println!("camp update: {}", output.camp_update_status);
         if !output.observed_claims.is_empty() {
             println!("observed claims: {}", output.observed_claims.join(", "));
         }
@@ -327,6 +329,7 @@ mod tests {
             status: CheckoutStatus::Diverted,
             requested_branch: "feature-login".to_owned(),
             occupied_by: Some("qa-agent-01".to_owned()),
+            camp_update_status: "synced",
             decision_basis: DecisionBasis::ClaimArbitrationLost,
             observed_claims: vec!["qa-agent-01".to_owned()],
             observed_peers: vec![ObservedPeerOutput {
@@ -360,6 +363,7 @@ mod tests {
         assert!(json.contains("\"status\": \"diverted\""));
         assert!(json.contains("\"requested_branch\": \"feature-login\""));
         assert!(json.contains("\"occupied_by\": \"qa-agent-01\""));
+        assert!(json.contains("\"camp_update_status\": \"synced\""));
         assert!(json.contains("\"decision_basis\": \"claim_arbitration_lost\""));
         assert!(json.contains("\"observed_claims\": ["));
         assert!(json.contains("\"observed_peers\": ["));
