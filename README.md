@@ -75,7 +75,12 @@ Example diverted JSON:
 
 ### `garc status`
 
-Shows the current local branch plus discovered CAMP peers for the same runtime mesh.
+Shows the current local branch plus discovered CAMP peers for the same project.
+
+`garc` treats `.camp.toml` as the project source of truth and validates that
+`agent.project` matches the repository directory name before performing mesh-aware
+operations. This avoids silently mixing unrelated repos into the same branch
+collision namespace.
 
 ```bash
 garc status
@@ -92,6 +97,10 @@ Minimal expected fields:
 - `agent.project`
 - `agent.branch`
 - `discovery.service_type` (defaults to `_camp._tcp.local.` if omitted)
+
+Optional discovery override:
+
+- `discovery.mdns_port` for isolated local testing when you want `garc` to browse a non-default mDNS port
 
 Mesh peer discovery reads these TXT records from mDNS/DNS-SD:
 
