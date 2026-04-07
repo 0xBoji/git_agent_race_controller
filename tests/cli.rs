@@ -91,6 +91,11 @@ fn checkout_diverts_when_remote_agent_wins_branch_claim_arbitration() -> Result<
     assert_eq!(json["observed_peers"][0]["agent_id"], "alpha-agent");
     assert_eq!(json["observed_peers"][0]["current_branch"], "main");
     assert_eq!(json["observed_peers"][0]["intent_branch"], "feature-login");
+    assert_eq!(json["mesh_read_attempts"], 1);
+    assert_eq!(
+        json["mesh_read_backoff_ms"].as_array().map(Vec::len),
+        Some(0)
+    );
     assert_eq!(json["decision_trace"].as_array().map(Vec::len), Some(6));
     assert_eq!(json["decision_trace"][0], "published_claim:feature-login");
     assert_eq!(
@@ -185,6 +190,11 @@ fn checkout_accepts_claim_settle_ms_cli_override() -> Result<()> {
     assert!(output.status.success());
     assert_eq!(json["status"], "checked_out");
     assert_eq!(json["actual_branch"], "feature-login");
+    let trace_path = harness.repo_dir.join(".git/garc/last-checkout-trace.json");
+    assert!(trace_path.exists());
+    let persisted_trace: Value = serde_json::from_slice(&fs::read(trace_path)?)?;
+    assert_eq!(persisted_trace["requested_branch"], "feature-login");
+    assert_eq!(persisted_trace["status"], "checked_out");
     Ok(())
 }
 
