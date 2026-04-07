@@ -129,6 +129,8 @@ For richer agent/operator observability, checkout JSON should also support optio
 - `observed_peers`
 - `decision_trace`
 - `decision_trace_entries`
+- `mesh_read_attempts`
+- `mesh_read_backoff_ms`
 
 `observed_peers` should provide a concise machine-readable trace of the same-project peers that influenced the decision, including at least:
 
@@ -144,6 +146,8 @@ For richer agent/operator observability, checkout JSON should also support optio
 - `at_ms`
 
 where `at_ms` is a relative millisecond offset from the start of the checkout flow. This keeps the trace useful for debugging without requiring synchronized wall clocks across machines.
+
+`mesh_read_attempts` should report how many mesh read attempts were needed after claim publication. `mesh_read_backoff_ms` should report the bounded backoff schedule used for those retries so operators can see whether a checkout succeeded immediately or only after jitter settled.
 
 ### `garc status`
 Returns a unified view of the local Git status AND the mesh branch status.
@@ -166,6 +170,8 @@ These summaries should include the local agent's current branch as part of the c
 
 When a local checkout is actively in the claim-handshake phase, `status --json` should also surface that **local in-flight claim** in the project summary view instead of hiding it until the final branch checkout completes.
 
+For local post-mortem debugging, GARC may also persist the most recent checkout trace under the repository's `.git/garc/` state directory. That persisted trace is local-only observability state, not a coordination primitive.
+
 ## 8. Edge Cases & Constraints
 
 - **Orphaned Locks / Claims:** If a remote agent crashes, steady-state `current_branch` occupancy and short-lived `intent_branch` claims must disappear through CAMP/mDNS TTL eviction. GARC must not introduce a separate lock server.
@@ -175,6 +181,7 @@ When a local checkout is actively in the claim-handshake phase, `status --json` 
 - **Project Namespace Guardrail:** GARC should continue treating the repo-local `.camp.toml` project as part of the safety boundary. If the configured project does not match the repository project namespace, mesh-aware operations should stop with a structured error rather than risk cross-project coordination mistakes.
 - **Status Summary Semantics:** Summary fields in `status --json` must be derived only from same-project peers. Other projects must never pollute branch occupancy or claim summaries.
 - **Local Claim Visibility:** If GARC persists local in-flight claim state for observability, that state must be ephemeral and automatically removed when the checkout decision completes or the process exits normally.
+- **Persisted Trace Scope:** Any persisted last-checkout trace file must be treated as local debugging state only. It must not participate in arbitration and must be safe to overwrite on the next checkout attempt.
 - **Override Precedence:** If `--claim-settle-ms` is provided, it overrides `.camp.toml` for that invocation only and must not rewrite the config file.
 - **Mesh Re-read Reliability:** After publishing a claim, GARC may retry mesh re-read a small number of times before failing closed. Retries must prefer safety and determinism over speed.
 - **Retry Backoff Policy:** Mesh re-read retries should use a bounded backoff schedule rather than a tight constant loop, so local LAN jitter can settle without turning one checkout into a long stall.
@@ -197,7 +204,9 @@ The implementation must include automated coverage for at least the following:
 - checkout JSON `observed_peers` trace shape
 - checkout JSON `decision_trace` shape
 - checkout JSON `decision_trace_entries` timestamped shape
+- checkout JSON `mesh_read_attempts` / `mesh_read_backoff_ms` fields
 - retry/backoff helper behavior
+- persisted last-checkout trace file lifecycle
 - hook installer idempotence remains intact
 
 ## 10. Future Roadmap
@@ -218,6 +227,7 @@ The implementation must include automated coverage for at least the following:
 - Support `discovery.claim_settle_ms` in `.camp.toml` as an optional claim-arbitration tuning knob.
 - Support `--claim-settle-ms` as a per-command override for checkout claim arbitration timing.
 - Use a bounded retry/backoff strategy when re-reading the mesh after claim publication.
+- Persist the most recent checkout coordination trace under `.git/garc/` for local debugging, without using that file as an input to arbitration.
 - The `engine` module must implement the collision detection logic cleanly — query the mesh, compare `current_project` against the local repo name, and return typed checkout/arbitration decisions rather than ad-hoc booleans.
 - All `garc checkout` output paths (clear, diverted, forced) must serialize to the JSON schema shown in the spec when `--json` is passed.
 - `status --json` should provide machine-readable branch occupancy and active-claim summaries for the current project.
