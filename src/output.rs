@@ -34,6 +34,9 @@ pub struct CheckoutOutput {
     pub observed_peers: Vec<ObservedPeerOutput>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claim_winner: Option<String>,
+    pub mesh_read_attempts: usize,
+    #[serde(default)]
+    pub mesh_read_backoff_ms: Vec<u64>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub decision_trace: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -153,6 +156,18 @@ pub fn print_checkout(output: &CheckoutOutput, json: bool) -> Result<()> {
         }
         if let Some(claim_winner) = &output.claim_winner {
             println!("claim winner: {claim_winner}");
+        }
+        println!("mesh read attempts: {}", output.mesh_read_attempts);
+        if !output.mesh_read_backoff_ms.is_empty() {
+            println!(
+                "mesh read backoff: {}",
+                output
+                    .mesh_read_backoff_ms
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
         }
         if !output.decision_trace.is_empty() {
             println!("decision trace:");
@@ -294,6 +309,8 @@ mod tests {
                 intent_branch: Some("feature-login".to_owned()),
             }],
             claim_winner: Some("qa-agent-01".to_owned()),
+            mesh_read_attempts: 1,
+            mesh_read_backoff_ms: Vec::new(),
             decision_trace: vec![
                 "published_claim".to_owned(),
                 "observed_claimants:qa-agent-01".to_owned(),
@@ -321,6 +338,7 @@ mod tests {
         assert!(json.contains("\"observed_claims\": ["));
         assert!(json.contains("\"observed_peers\": ["));
         assert!(json.contains("\"claim_winner\": \"qa-agent-01\""));
+        assert!(json.contains("\"mesh_read_attempts\": 1"));
         assert!(json.contains("\"decision_trace\": ["));
         assert!(json.contains("\"decision_trace_entries\": ["));
         assert!(json.contains("\"at_ms\": 0"));
