@@ -444,6 +444,8 @@ fn resolve_claim_settle_ms(config_value: u64, override_value: Option<u64>) -> u6
 }
 
 fn record_trace_entry(entries: &mut Vec<DecisionTraceEntry>, started_at: &Instant, event: String) {
+    // Relative milliseconds keep the trace locally meaningful without implying that separate
+    // hosts participating in the same LAN arbitration share a trustworthy wall clock.
     entries.push(DecisionTraceEntry {
         event,
         at_ms: started_at.elapsed().as_millis() as u64,
