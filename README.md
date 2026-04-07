@@ -302,6 +302,16 @@ garc status --config path/to/.camp.toml
 Shows the current local branch, actively occupied branches on the mesh, and any pending `intent_branch` claims.
 If a local checkout is currently mid-claim, the project-level JSON summary includes that local in-flight claim as well.
 
+### `garc trace`
+
+```bash
+garc trace
+garc trace --json
+garc trace --history --json
+```
+
+Reads persisted local checkout traces from `.git/garc/`. Use it when you want to inspect the latest arbitration result or a bounded recent history without opening the state files manually.
+
 ---
 
 ## Integration with CAMP
