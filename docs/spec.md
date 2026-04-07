@@ -170,10 +170,17 @@ Recommended JSON summary sections:
 
 - `occupied_branches`: same-project branches currently occupied by one or more peers
 - `active_claims`: same-project claims currently visible on the mesh, including claimants and the deterministic claim winner when applicable
+- `camp_status`: local CAMP availability/process signal for this machine
 
 These summaries should include the local agent's current branch as part of the current project view. In other words, `status --json` should expose a project-level picture, not only a remote-peer picture.
 
 When a local checkout is actively in the claim-handshake phase, `status --json` should also surface that **local in-flight claim** in the project summary view instead of hiding it until the final branch checkout completes.
+
+`camp_status` should distinguish at least:
+
+- `running` when local CAMP tooling is available and appears healthy enough for normal use
+- `not_found` when `camp` is not available in `$PATH`
+- `unknown` when local probing fails for another reason
 
 For local post-mortem debugging, GARC may also persist checkout traces under the repository's `.git/garc/` state directory. That persisted trace data is local-only observability state, not a coordination primitive.
 
@@ -212,6 +219,7 @@ If no persisted trace exists yet, the command should return a structured empty r
 - **Claim Publication Failure Policy:** In non-`--force` mode, if GARC cannot publish its temporary claim or cannot re-read the mesh after publishing it, the checkout should fail closed rather than silently performing an unsafe direct checkout.
 - **Project Namespace Guardrail:** GARC should continue treating the repo-local `.camp.toml` project as part of the safety boundary. If the configured project does not match the repository project namespace, mesh-aware operations should stop with a structured error rather than risk cross-project coordination mistakes.
 - **Status Summary Semantics:** Summary fields in `status --json` must be derived only from same-project peers. Other projects must never pollute branch occupancy or claim summaries.
+- **Local CAMP Probe Hygiene:** Local CAMP availability detection must not write to stdout/stderr in ways that corrupt `--json` output.
 - **Local Claim Visibility:** If GARC persists local in-flight claim state for observability, that state must be ephemeral and automatically removed when the checkout decision completes or the process exits normally.
 - **Persisted Trace Scope:** Any persisted checkout trace file must be treated as local debugging state only. It must not participate in arbitration.
 - **Trace History Retention:** If GARC keeps a local trace history, it should prune older entries to a bounded count rather than growing unbounded inside `.git/`.
@@ -233,6 +241,7 @@ The implementation must include automated coverage for at least the following:
 - `claim_settle_ms` config parsing / default behavior
 - `--claim-settle-ms` CLI override precedence
 - status JSON summaries for occupied branches and active claims
+- `status --json` `camp_status` field behavior
 - status summaries including the local agent branch
 - local in-flight claim visibility in status summaries
 - checkout JSON `observed_peers` trace shape
