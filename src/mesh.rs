@@ -9,6 +9,7 @@ use std::{
 use anyhow::{Context, Result};
 use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo, UnregisterStatus};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::{config::CampConfig, errors::GarcError};
 
@@ -258,6 +259,50 @@ pub fn read_local_claim_state(git_dir: &Path) -> Result<Option<LocalClaimState>>
     }
 }
 
+pub fn read_last_checkout_trace(git_dir: &Path) -> Result<Option<Value>> {
+    let path = garc_state_dir(git_dir).join(LAST_TRACE_FILE_NAME);
+    read_json_file_if_exists(&path)
+}
+
+pub fn read_trace_history(git_dir: &Path) -> Result<Vec<Value>> {
+    let history_dir = trace_history_dir(git_dir);
+    let mut paths = match fs::read_dir(&history_dir) {
+        Ok(entries) => entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                entry
+                    .file_type()
+                    .ok()
+                    .filter(|file_type| file_type.is_file())
+                    .map(|_| entry.path())
+            })
+            .collect::<Vec<_>>(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to read trace history directory `{}`",
+                    history_dir.display()
+                )
+            });
+        }
+    };
+    paths.sort();
+    paths.reverse();
+
+    paths
+        .into_iter()
+        .map(|path| {
+            let contents = fs::read_to_string(&path).with_context(|| {
+                format!("failed to read trace history entry `{}`", path.display())
+            })?;
+            serde_json::from_str(&contents).with_context(|| {
+                format!("failed to parse trace history entry `{}`", path.display())
+            })
+        })
+        .collect()
+}
+
 pub fn write_last_checkout_trace(git_dir: &Path, trace: &impl Serialize) -> Result<PathBuf> {
     // This file is intentionally overwrite-only and local to one repository clone. It exists to
     // help operators inspect the most recent checkout arbitration, not to coordinate future ones.
@@ -411,6 +456,20 @@ pub fn retry_backoff_ms(attempt: usize) -> u64 {
         0 => 25,
         1 => 50,
         _ => 100,
+    }
+}
+
+fn read_json_file_if_exists(path: &Path) -> Result<Option<Value>> {
+    match fs::read_to_string(path) {
+        Ok(contents) => {
+            let value = serde_json::from_str(&contents)
+                .with_context(|| format!("failed to parse JSON file `{}`", path.display()))?;
+            Ok(Some(value))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("failed to read JSON file `{}`", path.display()))
+        }
     }
 }
 
