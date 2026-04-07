@@ -289,6 +289,7 @@ garc checkout <branch> --claim-settle-ms 500
 ```
 
 Executes the claim logic. The `--claim-settle-ms` override can be used if your local network mDNS discovery is particularly slow and you want to reduce the risk of missed collision detection in race scenarios.
+The override only applies to that single checkout attempt; it does not rewrite `.camp.toml`.
 
 ### `garc status`
 
