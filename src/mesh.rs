@@ -1,6 +1,8 @@
 use std::{
     collections::BTreeMap,
     env, fs,
+    io::{Read, Write},
+    net::TcpStream,
     path::{Path, PathBuf},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -23,6 +25,7 @@ const LAST_TRACE_FILE_NAME: &str = "last-checkout-trace.json";
 const TRACE_HISTORY_DIR_NAME: &str = "trace-history";
 const TRACE_HISTORY_LIMIT: usize = 10;
 const CLAIM_DISCOVERY_RETRIES: usize = 3;
+const DEFAULT_CAMP_REST_URL: &str = "http://127.0.0.1:9999/agents";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeshPeer {
@@ -195,6 +198,10 @@ pub fn discover_peers(config: &CampConfig) -> Result<Vec<MeshPeer>> {
         return Ok(peers);
     }
 
+    if let Some(peers) = discover_peers_via_rest(config)? {
+        return Ok(peers);
+    }
+
     let service_type = config.service_type().to_owned();
     let timeout = Duration::from_millis(config.discovery_timeout_ms());
     let daemon = if let Some(mdns_port) = config.mdns_port() {
@@ -233,6 +240,51 @@ pub fn discover_peers(config: &CampConfig) -> Result<Vec<MeshPeer>> {
     let _ = daemon.shutdown();
 
     Ok(peers.into_values().collect())
+}
+
+fn discover_peers_via_rest(config: &CampConfig) -> Result<Option<Vec<MeshPeer>>> {
+    if let Some(snapshot) = env::var_os("GARC_CAMP_REST_JSON") {
+        let agents: Vec<RestAgentRecord> =
+            serde_json::from_str(snapshot.to_string_lossy().as_ref())
+                .context("failed to parse GARC_CAMP_REST_JSON")?;
+        return Ok(Some(
+            agents
+                .into_iter()
+                .map(|agent| MeshPeer {
+                    agent_id: agent.id,
+                    current_branch: agent.branch,
+                    current_project: agent.project,
+                    intent_branch: agent.metadata.get(INTENT_BRANCH).cloned(),
+                    fullname: agent.instance_name,
+                    port: agent.port,
+                })
+                .collect(),
+        ));
+    }
+
+    let base_url = env::var("GARC_CAMP_REST_URL")
+        .unwrap_or_else(|_| format!("{DEFAULT_CAMP_REST_URL}?project={}", config.agent.project));
+    let response = match http_get_json(&base_url) {
+        Ok(Some(value)) => value,
+        Ok(None) => return Ok(None),
+        Err(_) => return Ok(None),
+    };
+
+    let agents: Vec<RestAgentRecord> =
+        serde_json::from_value(response).context("failed to parse camp REST agent list")?;
+    Ok(Some(
+        agents
+            .into_iter()
+            .map(|agent| MeshPeer {
+                agent_id: agent.id,
+                current_branch: agent.branch,
+                current_project: agent.project,
+                intent_branch: agent.metadata.get(INTENT_BRANCH).cloned(),
+                fullname: agent.instance_name,
+                port: agent.port,
+            })
+            .collect(),
+    ))
 }
 
 pub fn update_local_branch(
@@ -471,6 +523,55 @@ fn read_json_file_if_exists(path: &Path) -> Result<Option<Value>> {
             Err(error).with_context(|| format!("failed to read JSON file `{}`", path.display()))
         }
     }
+}
+
+fn http_get_json(url: &str) -> Result<Option<Value>> {
+    let without_scheme = match url.strip_prefix("http://") {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let (host_port, path) = match without_scheme.split_once('/') {
+        Some((host_port, path)) => (host_port, format!("/{}", path)),
+        None => (without_scheme, "/".to_owned()),
+    };
+    let (host, port) = match host_port.split_once(':') {
+        Some((host, port)) => (host, port.parse::<u16>().unwrap_or(80)),
+        None => (host_port, 80),
+    };
+
+    let mut stream = match TcpStream::connect((host, port)) {
+        Ok(stream) => stream,
+        Err(_) => return Ok(None),
+    };
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n"
+    )
+    .context("failed to write REST request")?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .context("failed to read REST response")?;
+    let (headers, body) = response
+        .split_once("\r\n\r\n")
+        .context("REST response missing header separator")?;
+    if !headers.starts_with("HTTP/1.1 200") && !headers.starts_with("HTTP/1.0 200") {
+        return Ok(None);
+    }
+
+    let value = serde_json::from_str(body).context("failed to parse REST JSON body")?;
+    Ok(Some(value))
+}
+
+#[derive(Debug, Deserialize)]
+struct RestAgentRecord {
+    id: String,
+    instance_name: String,
+    project: String,
+    branch: String,
+    port: u16,
+    #[serde(default)]
+    metadata: std::collections::BTreeMap<String, String>,
 }
 
 #[cfg(test)]
