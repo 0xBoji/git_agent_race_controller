@@ -16,6 +16,7 @@ impl Cli {
             Command::Init(args) => args.json,
             Command::Checkout(args) => args.json,
             Command::Status(args) => args.json,
+            Command::Trace(args) => args.json,
             Command::Up(args) => args.json,
             Command::Commit(args) => args.json,
         }
@@ -30,6 +31,8 @@ pub enum Command {
     Checkout(CheckoutArgs),
     /// Show local git state alongside discovered mesh peers.
     Status(StatusArgs),
+    /// Read persisted local checkout traces for this repository.
+    Trace(TraceArgs),
     /// Bring this agent online by delegating to `camp up`.
     Up(UpArgs),
     /// Mesh-guarded `git commit`: verifies branch is uncontested before committing.
@@ -72,6 +75,16 @@ pub struct StatusArgs {
     /// Emit machine-readable JSON.
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct TraceArgs {
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
+    /// Return bounded recent history instead of only the latest trace.
+    #[arg(long)]
+    pub history: bool,
 }
 
 #[derive(Debug, Args)]
