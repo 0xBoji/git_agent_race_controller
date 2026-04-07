@@ -649,7 +649,17 @@ fn detect_camp_status() -> &'static str {
         .stderr(std::process::Stdio::null())
         .status()
     {
-        Ok(status) if status.success() => "running",
+        Ok(status) if status.success() => match ProcessCommand::new("pgrep")
+            .arg("-x")
+            .arg("camp")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+        {
+            Ok(status) if status.success() => "running",
+            Ok(_) => "unknown",
+            Err(_) => "unknown",
+        },
         Ok(_) => "unknown",
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => "not_found",
         Err(_) => "unknown",

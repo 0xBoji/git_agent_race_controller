@@ -413,6 +413,7 @@ fn status_reports_local_branch_and_mesh_peers() -> Result<()> {
 fn status_reports_running_when_camp_binary_is_available() -> Result<()> {
     let harness = TestRepo::new("_garc-status-camp-running._tcp.local.")?;
     let camp_dir = harness.write_camp_stub("#!/bin/sh\nexit 0\n")?;
+    harness.write_stub("pgrep", "#!/bin/sh\nexit 0\n")?;
 
     let output = harness.run_with_env(
         ["status", "--json"],
@@ -422,6 +423,23 @@ fn status_reports_running_when_camp_binary_is_available() -> Result<()> {
 
     assert!(output.status.success());
     assert_eq!(json["camp_status"], "running");
+    Ok(())
+}
+
+#[test]
+fn status_reports_unknown_when_camp_exists_but_no_process_is_detected() -> Result<()> {
+    let harness = TestRepo::new("_garc-status-camp-unknown._tcp.local.")?;
+    let camp_dir = harness.write_camp_stub("#!/bin/sh\nexit 0\n")?;
+    harness.write_stub("pgrep", "#!/bin/sh\nexit 1\n")?;
+
+    let output = harness.run_with_env(
+        ["status", "--json"],
+        &[("PATH", camp_dir.to_string_lossy().as_ref())],
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["camp_status"], "unknown");
     Ok(())
 }
 
@@ -631,6 +649,21 @@ impl TestRepo {
             let mut perms = fs::metadata(&camp_path)?.permissions();
             perms.set_mode(0o755);
             fs::set_permissions(&camp_path, perms)?;
+        }
+        Ok(bin_dir)
+    }
+
+    fn write_stub(&self, name: &str, body: &str) -> Result<PathBuf> {
+        let bin_dir = self.repo_dir.join("test-bin");
+        fs::create_dir_all(&bin_dir)?;
+        let path = bin_dir.join(name);
+        fs::write(&path, body)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&path, perms)?;
         }
         Ok(bin_dir)
     }

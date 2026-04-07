@@ -178,9 +178,9 @@ When a local checkout is actively in the claim-handshake phase, `status --json` 
 
 `camp_status` should distinguish at least:
 
-- `running` when local CAMP tooling is available and appears healthy enough for normal use
+- `running` when local CAMP tooling is available and a local CAMP process appears to be running
 - `not_found` when `camp` is not available in `$PATH`
-- `unknown` when local probing fails for another reason
+- `unknown` when local probing fails for another reason, or when the binary is present but no reliable running-process signal is available
 
 For local post-mortem debugging, GARC may also persist checkout traces under the repository's `.git/garc/` state directory. That persisted trace data is local-only observability state, not a coordination primitive.
 
@@ -220,6 +220,7 @@ If no persisted trace exists yet, the command should return a structured empty r
 - **Project Namespace Guardrail:** GARC should continue treating the repo-local `.camp.toml` project as part of the safety boundary. If the configured project does not match the repository project namespace, mesh-aware operations should stop with a structured error rather than risk cross-project coordination mistakes.
 - **Status Summary Semantics:** Summary fields in `status --json` must be derived only from same-project peers. Other projects must never pollute branch occupancy or claim summaries.
 - **Local CAMP Probe Hygiene:** Local CAMP availability detection must not write to stdout/stderr in ways that corrupt `--json` output.
+- **Process Probe Scope:** `camp_status` should be based on local process/tooling signals only. It must not infer “running” merely from remote peers being visible on the mesh.
 - **Local Claim Visibility:** If GARC persists local in-flight claim state for observability, that state must be ephemeral and automatically removed when the checkout decision completes or the process exits normally.
 - **Persisted Trace Scope:** Any persisted checkout trace file must be treated as local debugging state only. It must not participate in arbitration.
 - **Trace History Retention:** If GARC keeps a local trace history, it should prune older entries to a bounded count rather than growing unbounded inside `.git/`.
