@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::mesh::MeshPeer;
 
@@ -75,6 +76,15 @@ pub struct StatusOutput {
     pub occupied_branches: Vec<OccupiedBranchSummary>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub active_claims: Vec<ActiveClaimSummary>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TraceOutput {
+    pub status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest: Option<Value>,
+    #[serde(default)]
+    pub history: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -255,6 +265,22 @@ pub fn print_status(output: &StatusOutput, json: bool) -> Result<()> {
                 );
             }
         }
+    }
+
+    Ok(())
+}
+
+pub fn print_trace(output: &TraceOutput, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(output)?);
+    } else if let Some(latest) = &output.latest {
+        println!("latest trace:");
+        println!("{}", serde_json::to_string_pretty(latest)?);
+        if !output.history.is_empty() {
+            println!("history entries: {}", output.history.len());
+        }
+    } else {
+        println!("no persisted checkout traces found");
     }
 
     Ok(())
