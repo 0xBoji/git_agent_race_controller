@@ -177,6 +177,28 @@ Recommended local files:
 - `.git/garc/last-checkout-trace.json` — overwrite-only pointer to the most recent checkout trace
 - `.git/garc/trace-history/` — bounded history of recent checkout traces for debugging multiple attempts over time
 
+### `garc trace`
+Reads persisted local checkout trace data for the current repository.
+
+Recommended behaviors:
+
+- default mode returns the most recent persisted checkout trace
+- `--history` returns a bounded list of recent persisted traces
+- `--json` emits stable machine-readable output
+
+Recommended JSON fields:
+
+- `status`
+- `latest` for the most recent trace when available
+- `history` for the ordered recent trace list when requested
+
+Suggested statuses:
+
+- `ok` when at least one persisted trace is available
+- `empty` when no persisted trace exists yet
+
+If no persisted trace exists yet, the command should return a structured empty response rather than failing.
+
 ## 8. Edge Cases & Constraints
 
 - **Orphaned Locks / Claims:** If a remote agent crashes, steady-state `current_branch` occupancy and short-lived `intent_branch` claims must disappear through CAMP/mDNS TTL eviction. GARC must not introduce a separate lock server.
@@ -215,6 +237,7 @@ The implementation must include automated coverage for at least the following:
 - retry/backoff helper behavior
 - persisted last-checkout trace file lifecycle
 - bounded trace-history pruning behavior
+- `garc trace` latest/history output behavior
 - hook installer idempotence remains intact
 
 ## 10. Future Roadmap
@@ -237,6 +260,7 @@ The implementation must include automated coverage for at least the following:
 - Use a bounded retry/backoff strategy when re-reading the mesh after claim publication.
 - Persist the most recent checkout coordination trace under `.git/garc/` for local debugging, without using that file as an input to arbitration.
 - Retain a bounded local history of recent checkout traces under `.git/garc/trace-history/`.
+- Provide a `garc trace` command for reading persisted trace state without requiring operators to open `.git/garc/` manually.
 - The `engine` module must implement the collision detection logic cleanly — query the mesh, compare `current_project` against the local repo name, and return typed checkout/arbitration decisions rather than ad-hoc booleans.
 - All `garc checkout` output paths (clear, diverted, forced) must serialize to the JSON schema shown in the spec when `--json` is passed.
 - `status --json` should provide machine-readable branch occupancy and active-claim summaries for the current project.
