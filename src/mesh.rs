@@ -262,8 +262,12 @@ fn discover_peers_via_rest(config: &CampConfig) -> Result<Option<Vec<MeshPeer>>>
         ));
     }
 
-    let base_url = env::var("GARC_CAMP_REST_URL")
-        .unwrap_or_else(|_| format!("{DEFAULT_CAMP_REST_URL}?project={}", config.agent.project));
+    let base_url = env::var("GARC_CAMP_REST_URL").unwrap_or_else(|_| {
+        config
+            .camp_rest_url()
+            .map(str::to_owned)
+            .unwrap_or_else(|| format!("{DEFAULT_CAMP_REST_URL}?project={}", config.agent.project))
+    });
     let response = match http_get_json(&base_url) {
         Ok(Some(value)) => value,
         Ok(None) => return Ok(None),

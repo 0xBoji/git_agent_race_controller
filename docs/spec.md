@@ -87,12 +87,14 @@ Implementation note:
 In addition to existing discovery settings, the implementation should support:
 
 - `discovery.claim_settle_ms` (optional)
+- `discovery.camp_rest_url` (optional)
 
 Behavior:
 
 - when omitted, GARC uses a safe default settle window
 - when present, the value tunes how long GARC waits after publishing a claim before re-reading the mesh
 - this knob affects safety/latency trade-offs only for claim arbitration; it must not change steady-state occupancy semantics
+- when `discovery.camp_rest_url` is present, GARC may query that local CAMP REST bridge for peer discovery before falling back to raw mDNS
 
 ## 7. Command Line Interface (ACI - Agent Computer Interface)
 `garc` is built for LLM parsing. All standard outputs are predictable, and JSON output is natively supported.
@@ -221,6 +223,7 @@ If no persisted trace exists yet, the command should return a structured empty r
 - **Status Summary Semantics:** Summary fields in `status --json` must be derived only from same-project peers. Other projects must never pollute branch occupancy or claim summaries.
 - **Local CAMP Probe Hygiene:** Local CAMP availability detection must not write to stdout/stderr in ways that corrupt `--json` output.
 - **Process Probe Scope:** `camp_status` should be based on local process/tooling signals only. It must not infer “running” merely from remote peers being visible on the mesh.
+- **REST Bridge Preference:** If a local CAMP REST bridge URL is configured, GARC should prefer it for peer reads before spinning up a one-shot discovery daemon.
 - **Local Claim Visibility:** If GARC persists local in-flight claim state for observability, that state must be ephemeral and automatically removed when the checkout decision completes or the process exits normally.
 - **Persisted Trace Scope:** Any persisted checkout trace file must be treated as local debugging state only. It must not participate in arbitration.
 - **Trace History Retention:** If GARC keeps a local trace history, it should prune older entries to a bounded count rather than growing unbounded inside `.git/`.
@@ -240,6 +243,7 @@ The implementation must include automated coverage for at least the following:
 - same-project filtering for both occupancy and intent claims
 - `--force` bypassing both occupancy and claim checks
 - `claim_settle_ms` config parsing / default behavior
+- `camp_rest_url` config parsing / discovery behavior
 - `--claim-settle-ms` CLI override precedence
 - status JSON summaries for occupied branches and active claims
 - `status --json` `camp_status` field behavior

@@ -74,6 +74,11 @@ impl CampConfig {
             .claim_settle_ms
             .unwrap_or(DEFAULT_CLAIM_SETTLE_MS)
     }
+
+    #[must_use]
+    pub fn camp_rest_url(&self) -> Option<&str> {
+        self.discovery.camp_rest_url.as_deref()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +111,8 @@ pub struct DiscoveryConfig {
     pub discovery_timeout_ms: Option<u64>,
     #[serde(default)]
     pub claim_settle_ms: Option<u64>,
+    #[serde(default)]
+    pub camp_rest_url: Option<String>,
 }
 
 pub fn resolve_config_path(repo_root: &Path, config: &Path) -> PathBuf {
@@ -153,6 +160,24 @@ mod tests {
         let config = CampConfig::from_path(&path)?;
 
         assert_eq!(config.claim_settle_ms(), 375);
+        Ok(())
+    }
+
+    #[test]
+    fn config_parsing_preserves_optional_camp_rest_url() -> Result<()> {
+        let tempdir = TempDir::new()?;
+        let path = tempdir.path().join(".camp.toml");
+        fs::write(
+            &path,
+            "[agent]\nid = \"local-agent\"\nproject = \"alpha\"\nbranch = \"main\"\n\n[discovery]\ncamp_rest_url = \"http://127.0.0.1:7654/agents?project=alpha\"\n",
+        )?;
+
+        let config = CampConfig::from_path(&path)?;
+
+        assert_eq!(
+            config.camp_rest_url(),
+            Some("http://127.0.0.1:7654/agents?project=alpha")
+        );
         Ok(())
     }
 

@@ -131,6 +131,33 @@ fn status_uses_rest_fallback_when_available() -> Result<()> {
 }
 
 #[test]
+fn status_uses_configured_rest_url_when_available() -> Result<()> {
+    let harness = TestRepo::new("_garc-status-rest-config._tcp.local.")?;
+    harness.write_config_with_rest_url(
+        &harness.project_name,
+        "_garc-status-rest-config._tcp.local.",
+        "http://127.0.0.1:7654/agents?project=repo-under-test",
+    )?;
+    let output = harness.run_with_env(
+        ["status", "--json"],
+        &[(
+            "GARC_CAMP_REST_JSON",
+            &format!(
+                r#"[{{"id":"rest-config-agent","instance_name":"rest-config-agent._camp._tcp.local.","role":"agent","project":"{}","branch":"main","status":"idle","capabilities":[],"port":7000,"addresses":["127.0.0.1"],"metadata":{{"intent_branch":"feature-login"}}}}]"#,
+                harness.project_name
+            ),
+        )],
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["peers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["peers"][0]["agent_id"], "rest-config-agent");
+    assert_eq!(json["peers"][0]["intent_branch"], "feature-login");
+    Ok(())
+}
+
+#[test]
 fn up_json_emits_preamble_and_delegates() -> Result<()> {
     let harness = TestRepo::new("_garc-up-preamble._tcp.local.")?;
     let camp_dir = harness.write_camp_stub("#!/bin/sh\nprintf '{\"camp\":\"up\"}\\n'\nexit 0\n")?;
@@ -605,6 +632,19 @@ impl TestRepo {
             .unwrap_or_default();
         let config = format!(
             "[agent]\nid = \"local-agent\"\nproject = \"{project}\"\nbranch = \"main\"\n\n[discovery]\nservice_type = \"{service_type}\"\n{mdns_port_line}discovery_timeout_ms = 3000\n"
+        );
+        fs::write(self.repo_dir.join(".camp.toml"), config)?;
+        Ok(())
+    }
+
+    fn write_config_with_rest_url(
+        &self,
+        project: &str,
+        service_type: &str,
+        camp_rest_url: &str,
+    ) -> Result<()> {
+        let config = format!(
+            "[agent]\nid = \"local-agent\"\nproject = \"{project}\"\nbranch = \"main\"\n\n[discovery]\nservice_type = \"{service_type}\"\ncamp_rest_url = \"{camp_rest_url}\"\ndiscovery_timeout_ms = 3000\n"
         );
         fs::write(self.repo_dir.join(".camp.toml"), config)?;
         Ok(())
