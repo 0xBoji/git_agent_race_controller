@@ -83,6 +83,30 @@ fn checkout_reports_synced_when_camp_update_succeeds() -> Result<()> {
 
     assert!(output.status.success());
     assert_eq!(json["camp_update_status"], "synced");
+    assert_eq!(json["camp_update_exit_code"], 0);
+    Ok(())
+}
+
+#[test]
+fn checkout_reports_failed_when_camp_update_exits_non_zero() -> Result<()> {
+    let harness = TestRepo::new("_garc-checkout-update-failed._tcp.local.")?;
+    harness.create_branch("feature-login")?;
+    let camp_dir = harness.write_camp_stub("#!/bin/sh\necho boom >&2\nexit 7\n")?;
+
+    let output = harness.run_with_env(
+        ["checkout", "feature-login", "--json"],
+        &[("PATH", camp_dir.to_string_lossy().as_ref())],
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["camp_update_status"], "failed");
+    assert_eq!(json["camp_update_exit_code"], 7);
+    assert!(
+        json["camp_update_stderr"]
+            .as_str()
+            .is_some_and(|stderr| stderr.contains("boom"))
+    );
     Ok(())
 }
 

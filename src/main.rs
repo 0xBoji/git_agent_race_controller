@@ -124,7 +124,7 @@ fn run_checkout(
             "force_bypass".to_owned(),
         );
         checkout_force_branch(&repo.repo, requested_branch)?;
-        let camp_update_status = update_local_state(&config_path, &mut config, requested_branch)?;
+        let camp_update = update_local_state(&config_path, &mut config, requested_branch)?;
         record_trace_entry(
             &mut decision_trace_entries,
             &started_at,
@@ -135,7 +135,9 @@ fn run_checkout(
             status: CheckoutStatus::Forced,
             requested_branch: requested_branch.to_owned(),
             occupied_by: None,
-            camp_update_status,
+            camp_update_status: camp_update.status,
+            camp_update_exit_code: camp_update.exit_code,
+            camp_update_stderr: camp_update.stderr,
             decision_basis: DecisionBasis::ForceBypass,
             observed_claims: Vec::new(),
             observed_peers: Vec::new(),
@@ -205,8 +207,7 @@ fn run_checkout(
         match detect_collision(&peers, &project, requested_branch, &config.agent.id) {
             CollisionResult::Clear => {
                 checkout_existing_branch(&repo.repo, requested_branch)?;
-                let camp_update_status =
-                    update_local_state(&config_path, &mut config, requested_branch)?;
+                let camp_update = update_local_state(&config_path, &mut config, requested_branch)?;
                 if observed_claims.is_empty() {
                     decision_trace.push("mesh_clear".to_owned());
                     record_trace_entry(
@@ -233,7 +234,9 @@ fn run_checkout(
                     status: CheckoutStatus::CheckedOut,
                     requested_branch: requested_branch.to_owned(),
                     occupied_by: None,
-                    camp_update_status,
+                    camp_update_status: camp_update.status,
+                    camp_update_exit_code: camp_update.exit_code,
+                    camp_update_stderr: camp_update.stderr,
                     decision_basis: if observed_claims.is_empty() {
                         DecisionBasis::MeshClear
                     } else {
@@ -254,8 +257,7 @@ fn run_checkout(
             CollisionResult::Occupied { by } => {
                 let actual_branch = diverted_branch_name(requested_branch, &config.agent.id);
                 checkout_diverted_branch(&repo.repo, requested_branch, &actual_branch)?;
-                let camp_update_status =
-                    update_local_state(&config_path, &mut config, &actual_branch)?;
+                let camp_update = update_local_state(&config_path, &mut config, &actual_branch)?;
                 if active_occupier.is_some() {
                     decision_trace.push(format!("active_occupier:{by}"));
                     record_trace_entry(
@@ -282,7 +284,9 @@ fn run_checkout(
                     status: CheckoutStatus::Diverted,
                     requested_branch: requested_branch.to_owned(),
                     occupied_by: Some(by),
-                    camp_update_status,
+                    camp_update_status: camp_update.status,
+                    camp_update_exit_code: camp_update.exit_code,
+                    camp_update_stderr: camp_update.stderr,
                     decision_basis: if active_occupier.is_some() {
                         DecisionBasis::BranchOccupied
                     } else {
@@ -598,16 +602,43 @@ fn update_local_state(
     config_path: &std::path::Path,
     config: &mut CampConfig,
     branch: &str,
-) -> Result<&'static str> {
+) -> Result<CampUpdateResult> {
     update_local_branch(config_path, config, branch)?;
     match ProcessCommand::new("camp")
         .args(["update", "--branch", branch])
-        .status()
+        .output()
     {
-        Ok(status) if status.success() => Ok("synced"),
-        Ok(_) => Ok("failed"),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("skipped"),
+        Ok(output) if output.status.success() => Ok(CampUpdateResult {
+            status: "synced",
+            exit_code: output.status.code(),
+            stderr: stderr_string(&output.stderr),
+        }),
+        Ok(output) => Ok(CampUpdateResult {
+            status: "failed",
+            exit_code: output.status.code(),
+            stderr: stderr_string(&output.stderr),
+        }),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(CampUpdateResult {
+            status: "skipped",
+            exit_code: None,
+            stderr: None,
+        }),
         Err(error) => Err(error).context("failed to execute `camp update`"),
+    }
+}
+
+struct CampUpdateResult {
+    status: &'static str,
+    exit_code: Option<i32>,
+    stderr: Option<String>,
+}
+
+fn stderr_string(stderr: &[u8]) -> Option<String> {
+    let stderr = String::from_utf8_lossy(stderr).trim().to_owned();
+    if stderr.is_empty() {
+        None
+    } else {
+        Some(stderr)
     }
 }
 

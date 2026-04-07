@@ -29,6 +29,10 @@ pub struct CheckoutOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub occupied_by: Option<String>,
     pub camp_update_status: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camp_update_exit_code: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub camp_update_stderr: Option<String>,
     pub decision_basis: DecisionBasis,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub observed_claims: Vec<String>,
@@ -151,6 +155,14 @@ pub fn print_checkout(output: &CheckoutOutput, json: bool) -> Result<()> {
             println!("occupied by: {occupied_by}");
         }
         println!("camp update: {}", output.camp_update_status);
+        if let Some(exit_code) = output.camp_update_exit_code {
+            println!("camp update exit code: {exit_code}");
+        }
+        if let Some(stderr) = &output.camp_update_stderr
+            && !stderr.trim().is_empty()
+        {
+            println!("camp update stderr: {}", stderr.trim());
+        }
         if !output.observed_claims.is_empty() {
             println!("observed claims: {}", output.observed_claims.join(", "));
         }
@@ -332,6 +344,8 @@ mod tests {
             requested_branch: "feature-login".to_owned(),
             occupied_by: Some("qa-agent-01".to_owned()),
             camp_update_status: "synced",
+            camp_update_exit_code: Some(0),
+            camp_update_stderr: None,
             decision_basis: DecisionBasis::ClaimArbitrationLost,
             observed_claims: vec!["qa-agent-01".to_owned()],
             observed_peers: vec![ObservedPeerOutput {
@@ -366,6 +380,7 @@ mod tests {
         assert!(json.contains("\"requested_branch\": \"feature-login\""));
         assert!(json.contains("\"occupied_by\": \"qa-agent-01\""));
         assert!(json.contains("\"camp_update_status\": \"synced\""));
+        assert!(json.contains("\"camp_update_exit_code\": 0"));
         assert!(json.contains("\"decision_basis\": \"claim_arbitration_lost\""));
         assert!(json.contains("\"observed_claims\": ["));
         assert!(json.contains("\"observed_peers\": ["));
