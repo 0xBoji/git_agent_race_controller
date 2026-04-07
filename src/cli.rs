@@ -47,6 +47,9 @@ pub struct CheckoutArgs {
     /// Path to the CAMP config file.
     #[arg(long, default_value = ".camp.toml")]
     pub config: PathBuf,
+    /// Override the claim settle window in milliseconds for this invocation.
+    #[arg(long)]
+    pub claim_settle_ms: Option<u64>,
     /// Bypass mesh collision checks.
     #[arg(long)]
     pub force: bool,
