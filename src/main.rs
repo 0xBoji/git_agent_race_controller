@@ -8,8 +8,10 @@ mod mesh;
 mod output;
 
 use std::{
+    collections::BTreeMap,
     env,
     process::{Command as ProcessCommand, ExitCode},
+    time::Instant,
 };
 
 use anyhow::{Context, Result};
@@ -29,17 +31,17 @@ use crate::{
     },
     installer::install_post_checkout_hook,
     mesh::{
-        LocalClaimState, discover_peers, discover_peers_with_retry, publish_branch_claim,
-        read_local_claim_state, update_local_branch,
+        LocalClaimState, discover_peers, discover_peers_with_retry,
+        discover_peers_with_retry_metadata, publish_branch_claim, read_local_claim_state,
+        update_local_branch,
     },
     output::{
         ActiveClaimSummary, CheckoutOutput, CheckoutStatus, CommitOutput, CommitStatus,
-        DecisionBasis, InitOutput, ObservedPeerOutput, OccupiedBranchSummary, StatusOutput,
-        UpOutput, print_checkout, print_commit, print_error, print_init, print_status, print_up,
+        DecisionBasis, DecisionTraceEntry, InitOutput, ObservedPeerOutput, OccupiedBranchSummary,
+        StatusOutput, UpOutput, print_checkout, print_commit, print_error, print_init,
+        print_status, print_up,
     },
 };
-
-use std::collections::BTreeMap;
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -112,8 +114,20 @@ fn run_checkout(
         resolve_claim_settle_ms(config.claim_settle_ms(), claim_settle_ms_override);
 
     let output = if force {
+        let started_at = Instant::now();
+        let mut decision_trace_entries = Vec::new();
+        record_trace_entry(
+            &mut decision_trace_entries,
+            &started_at,
+            "force_bypass".to_owned(),
+        );
         checkout_force_branch(&repo.repo, requested_branch)?;
         update_local_state(&config_path, &mut config, requested_branch)?;
+        record_trace_entry(
+            &mut decision_trace_entries,
+            &started_at,
+            "decision:checked_out".to_owned(),
+        );
 
         CheckoutOutput {
             status: CheckoutStatus::Forced,
@@ -124,23 +138,52 @@ fn run_checkout(
             observed_peers: Vec::new(),
             claim_winner: None,
             decision_trace: vec!["force_bypass".to_owned(), "decision:checked_out".to_owned()],
+            decision_trace_entries,
             actual_branch: requested_branch.to_owned(),
             message: "Bypassed mesh collision checks and checked out the requested branch."
                 .to_owned(),
         }
     } else {
+        let started_at = Instant::now();
         let claim =
             publish_branch_claim(&config, &repo.git_dir, requested_branch, claim_settle_ms)?;
         let mut decision_trace = vec![
             format!("published_claim:{requested_branch}"),
             format!("claim_settle_ms:{claim_settle_ms}"),
         ];
+        let mut decision_trace_entries = Vec::new();
+        record_trace_entry(
+            &mut decision_trace_entries,
+            &started_at,
+            format!("published_claim:{requested_branch}"),
+        );
+        record_trace_entry(
+            &mut decision_trace_entries,
+            &started_at,
+            format!("claim_settle_ms:{claim_settle_ms}"),
+        );
         if claim.settle_required() {
             claim.settle();
             decision_trace.push("claim_settle_complete".to_owned());
+            record_trace_entry(
+                &mut decision_trace_entries,
+                &started_at,
+                "claim_settle_complete".to_owned(),
+            );
         }
-        let peers = discover_peers_with_retry(&config)?;
+        let (peers, read_attempts) = discover_peers_with_retry_metadata(&config)?;
         decision_trace.push(format!("observed_peer_count:{}", peers.len()));
+        decision_trace.push(format!("mesh_read_attempts:{read_attempts}"));
+        record_trace_entry(
+            &mut decision_trace_entries,
+            &started_at,
+            format!("observed_peer_count:{}", peers.len()),
+        );
+        record_trace_entry(
+            &mut decision_trace_entries,
+            &started_at,
+            format!("mesh_read_attempts:{read_attempts}"),
+        );
         let observed_claims =
             observed_claimants(&peers, &project, requested_branch, &config.agent.id);
         let observed_peers = observed_peer_outputs(&peers, &project);
@@ -157,10 +200,25 @@ fn run_checkout(
                 update_local_state(&config_path, &mut config, requested_branch)?;
                 if observed_claims.is_empty() {
                     decision_trace.push("mesh_clear".to_owned());
+                    record_trace_entry(
+                        &mut decision_trace_entries,
+                        &started_at,
+                        "mesh_clear".to_owned(),
+                    );
                 } else if let Some(claim_winner) = &claim_winner {
                     decision_trace.push(format!("claim_winner:{claim_winner}"));
+                    record_trace_entry(
+                        &mut decision_trace_entries,
+                        &started_at,
+                        format!("claim_winner:{claim_winner}"),
+                    );
                 }
                 decision_trace.push("decision:checked_out".to_owned());
+                record_trace_entry(
+                    &mut decision_trace_entries,
+                    &started_at,
+                    "decision:checked_out".to_owned(),
+                );
 
                 CheckoutOutput {
                     status: CheckoutStatus::CheckedOut,
@@ -175,6 +233,7 @@ fn run_checkout(
                     observed_peers,
                     claim_winner,
                     decision_trace,
+                    decision_trace_entries,
                     actual_branch: requested_branch.to_owned(),
                     message: "Target branch is clear on the mesh. Checked out requested branch."
                         .to_owned(),
@@ -186,10 +245,25 @@ fn run_checkout(
                 update_local_state(&config_path, &mut config, &actual_branch)?;
                 if active_occupier.is_some() {
                     decision_trace.push(format!("active_occupier:{by}"));
+                    record_trace_entry(
+                        &mut decision_trace_entries,
+                        &started_at,
+                        format!("active_occupier:{by}"),
+                    );
                 } else {
                     decision_trace.push(format!("claim_winner:{by}"));
+                    record_trace_entry(
+                        &mut decision_trace_entries,
+                        &started_at,
+                        format!("claim_winner:{by}"),
+                    );
                 }
                 decision_trace.push(format!("decision:diverted:{actual_branch}"));
+                record_trace_entry(
+                    &mut decision_trace_entries,
+                    &started_at,
+                    format!("decision:diverted:{actual_branch}"),
+                );
 
                 CheckoutOutput {
                     status: CheckoutStatus::Diverted,
@@ -204,6 +278,7 @@ fn run_checkout(
                     observed_peers,
                     claim_winner,
                     decision_trace,
+                    decision_trace_entries,
                     actual_branch,
                     message: "Target branch is currently locked. Checked out sub-branch to prevent race conditions.".to_owned(),
                 }
@@ -366,6 +441,13 @@ fn run_commit(json: bool, config_arg: &std::path::Path, passthrough: &[String]) 
 
 fn resolve_claim_settle_ms(config_value: u64, override_value: Option<u64>) -> u64 {
     override_value.unwrap_or(config_value)
+}
+
+fn record_trace_entry(entries: &mut Vec<DecisionTraceEntry>, started_at: &Instant, event: String) {
+    entries.push(DecisionTraceEntry {
+        event,
+        at_ms: started_at.elapsed().as_millis() as u64,
+    });
 }
 
 fn occupied_branch_summaries(
