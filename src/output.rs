@@ -339,6 +339,7 @@ mod tests {
         assert!(json.contains("\"observed_peers\": ["));
         assert!(json.contains("\"claim_winner\": \"qa-agent-01\""));
         assert!(json.contains("\"mesh_read_attempts\": 1"));
+        assert!(json.contains("\"mesh_read_backoff_ms\": []"));
         assert!(json.contains("\"decision_trace\": ["));
         assert!(json.contains("\"decision_trace_entries\": ["));
         assert!(json.contains("\"at_ms\": 0"));
