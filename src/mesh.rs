@@ -334,6 +334,9 @@ fn claim_state_path(git_dir: &Path) -> PathBuf {
 }
 
 pub fn retry_backoff_ms(attempt: usize) -> u64 {
+    // The backoff stays intentionally tiny and capped. We only want enough breathing room for
+    // LAN discovery jitter to settle, not a long retry ladder that makes contested checkouts
+    // feel hung from an operator's perspective.
     match attempt {
         0 => 25,
         1 => 50,
