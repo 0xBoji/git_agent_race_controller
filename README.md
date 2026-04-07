@@ -402,7 +402,8 @@ Example `garc checkout feat --json` (diverted state):
 
 LLMs can parse the `actual_branch` to immediately know where to perform their `git commit` and `git push` commands. The `decision_trace` array provides immediate debuggability for agent reasoning chains, while `decision_trace_entries` adds relative timing context for post-mortem debugging.
 GARC also persists the most recent checkout trace under `.git/garc/last-checkout-trace.json` for local debugging.
-The persisted trace is overwrite-only local state; it is not consulted during future arbitration.
+In addition, it keeps a bounded recent history under `.git/garc/trace-history/`.
+These persisted traces are local-only observability state; they are not consulted during future arbitration.
 
 ---
 
