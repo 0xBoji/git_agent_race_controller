@@ -91,8 +91,21 @@ fn checkout_diverts_when_remote_agent_wins_branch_claim_arbitration() -> Result<
     assert_eq!(json["observed_peers"][0]["agent_id"], "alpha-agent");
     assert_eq!(json["observed_peers"][0]["current_branch"], "main");
     assert_eq!(json["observed_peers"][0]["intent_branch"], "feature-login");
-    assert_eq!(json["decision_trace"].as_array().map(Vec::len), Some(5));
+    assert_eq!(json["decision_trace"].as_array().map(Vec::len), Some(6));
     assert_eq!(json["decision_trace"][0], "published_claim:feature-login");
+    assert_eq!(
+        json["decision_trace_entries"].as_array().map(Vec::len),
+        Some(6)
+    );
+    assert_eq!(
+        json["decision_trace_entries"][0]["event"],
+        "published_claim:feature-login"
+    );
+    assert!(
+        json["decision_trace_entries"][0]["at_ms"]
+            .as_u64()
+            .is_some()
+    );
     assert_eq!(json["actual_branch"], "feature-login--local-agent");
     assert_eq!(harness.current_branch()?, "feature-login--local-agent");
     Ok(())
