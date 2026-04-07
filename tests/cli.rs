@@ -64,17 +64,160 @@ fn checkout_diverts_when_remote_agent_occupies_branch() -> Result<()> {
 }
 
 #[test]
-fn status_reports_local_branch_and_mesh_peers() -> Result<()> {
-    let harness = TestRepo::new("_garc-status-test._tcp.local.")?;
+fn checkout_diverts_when_remote_agent_wins_branch_claim_arbitration() -> Result<()> {
+    let harness = TestRepo::new("_garc-checkout-claim-divert._tcp.local.")?;
+    harness.create_branch("feature-login")?;
     let output = harness.run_with_snapshot(
-        ["status", "--json"],
+        ["checkout", "feature-login", "--json"],
         json!([{
-            "agent_id": "reviewer-01",
+            "agent_id": "alpha-agent",
             "current_branch": "main",
             "current_project": harness.project_name,
-            "fullname": "reviewer-01._camp._tcp.local.",
+            "intent_branch": "feature-login",
+            "fullname": "garc-claim-alpha-agent._camp._tcp.local.",
             "port": 7000
         }]),
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "diverted");
+    assert_eq!(json["decision_basis"], "claim_arbitration_lost");
+    assert_eq!(json["claim_winner"], "alpha-agent");
+    assert_eq!(json["occupied_by"], "alpha-agent");
+    assert_eq!(json["observed_claims"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["observed_claims"][0], "alpha-agent");
+    assert_eq!(json["observed_peers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["observed_peers"][0]["agent_id"], "alpha-agent");
+    assert_eq!(json["observed_peers"][0]["current_branch"], "main");
+    assert_eq!(json["observed_peers"][0]["intent_branch"], "feature-login");
+    assert_eq!(json["decision_trace"].as_array().map(Vec::len), Some(5));
+    assert_eq!(json["decision_trace"][0], "published_claim:feature-login");
+    assert_eq!(json["actual_branch"], "feature-login--local-agent");
+    assert_eq!(harness.current_branch()?, "feature-login--local-agent");
+    Ok(())
+}
+
+#[test]
+fn checkout_stays_on_requested_branch_when_local_agent_wins_branch_claim_arbitration() -> Result<()>
+{
+    let harness = TestRepo::new("_garc-checkout-claim-clear._tcp.local.")?;
+    harness.create_branch("feature-login")?;
+    let output = harness.run_with_snapshot(
+        ["checkout", "feature-login", "--json"],
+        json!([{
+            "agent_id": "zeta-agent",
+            "current_branch": "main",
+            "current_project": harness.project_name,
+            "intent_branch": "feature-login",
+            "fullname": "garc-claim-zeta-agent._camp._tcp.local.",
+            "port": 7000
+        }]),
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "checked_out");
+    assert_eq!(json["decision_basis"], "claim_arbitration_won");
+    assert_eq!(json["claim_winner"], "local-agent");
+    assert_eq!(json["observed_claims"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["observed_claims"][0], "zeta-agent");
+    assert_eq!(json["actual_branch"], "feature-login");
+    assert_eq!(harness.current_branch()?, "feature-login");
+    Ok(())
+}
+
+#[test]
+fn force_checkout_bypasses_remote_branch_claim_arbitration() -> Result<()> {
+    let harness = TestRepo::new("_garc-checkout-claim-force._tcp.local.")?;
+    harness.create_branch("feature-login")?;
+    let output = harness.run_with_snapshot(
+        ["checkout", "feature-login", "--force", "--json"],
+        json!([{
+            "agent_id": "alpha-agent",
+            "current_branch": "main",
+            "current_project": harness.project_name,
+            "intent_branch": "feature-login",
+            "fullname": "garc-claim-alpha-agent._camp._tcp.local.",
+            "port": 7000
+        }]),
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "forced");
+    assert_eq!(json["decision_basis"], "force_bypass");
+    assert_eq!(json["actual_branch"], "feature-login");
+    assert_eq!(harness.current_branch()?, "feature-login");
+    Ok(())
+}
+
+#[test]
+fn checkout_accepts_claim_settle_ms_cli_override() -> Result<()> {
+    let harness = TestRepo::new("_garc-checkout-claim-override._tcp.local.")?;
+    harness.create_branch("feature-login")?;
+
+    let output = harness.run_with_snapshot(
+        [
+            "checkout",
+            "feature-login",
+            "--claim-settle-ms",
+            "5",
+            "--json",
+        ],
+        json!([]),
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "checked_out");
+    assert_eq!(json["actual_branch"], "feature-login");
+    Ok(())
+}
+
+#[test]
+fn checkout_fails_closed_when_claim_publication_cannot_start() -> Result<()> {
+    let harness = TestRepo::new("_garc-invalid-service._tcp.local.")?;
+    harness.create_branch("feature-login")?;
+    harness.write_config_with_discovery(&harness.project_name, "invalid-service-type", None)?;
+
+    let output = harness.run(["checkout", "feature-login", "--json"])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(!output.status.success());
+    assert_eq!(json["status"], "error");
+    assert!(
+        json["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("claim") || message.contains("service"))
+    );
+    assert_eq!(harness.current_branch()?, "main");
+    Ok(())
+}
+
+#[test]
+fn status_reports_local_branch_and_mesh_peers() -> Result<()> {
+    let harness = TestRepo::new("_garc-status-test._tcp.local.")?;
+    harness.write_local_claim_state("feature-login")?;
+    let output = harness.run_with_snapshot(
+        ["status", "--json"],
+        json!([
+            {
+                "agent_id": "reviewer-01",
+                "current_branch": "main",
+                "current_project": harness.project_name,
+                "intent_branch": "feature-login",
+                "fullname": "reviewer-01._camp._tcp.local.",
+                "port": 7000
+            },
+            {
+                "agent_id": "other-project-agent",
+                "current_branch": "main",
+                "current_project": "some-other-project",
+                "fullname": "other-project-agent._camp._tcp.local.",
+                "port": 7001
+            }
+        ]),
     )?;
     let json: Value = serde_json::from_slice(&output.stdout)?;
 
@@ -83,6 +226,52 @@ fn status_reports_local_branch_and_mesh_peers() -> Result<()> {
     assert_eq!(json["local_branch"], "main");
     assert_eq!(json["peers"].as_array().map(Vec::len), Some(1));
     assert_eq!(json["peers"][0]["agent_id"], "reviewer-01");
+    assert_eq!(json["peers"][0]["intent_branch"], "feature-login");
+    assert_eq!(json["occupied_branches"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["occupied_branches"][0]["branch"], "main");
+    assert_eq!(
+        json["occupied_branches"][0]["occupied_by"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        json["occupied_branches"][0]["occupied_by"][0],
+        "local-agent"
+    );
+    assert_eq!(
+        json["occupied_branches"][0]["occupied_by"][1],
+        "reviewer-01"
+    );
+    assert_eq!(json["active_claims"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["active_claims"][0]["branch"], "feature-login");
+    assert_eq!(
+        json["active_claims"][0]["claimants"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(json["active_claims"][0]["claimants"][0], "local-agent");
+    assert_eq!(json["active_claims"][0]["claimants"][1], "reviewer-01");
+    assert_eq!(json["active_claims"][0]["claim_winner"], "local-agent");
+    Ok(())
+}
+
+#[test]
+fn project_mismatch_returns_structured_json_error() -> Result<()> {
+    let harness = TestRepo::new("_garc-project-mismatch._tcp.local.")?;
+    harness.write_config_project("different-project")?;
+
+    let output = harness.run(["status", "--json"])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(!output.status.success());
+    assert_eq!(json["status"], "error");
+    assert!(
+        json["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("does not match repository project"))
+    );
     Ok(())
 }
 
@@ -178,6 +367,39 @@ impl TestRepo {
         let repo = Repository::open(&self.repo_dir)?;
         let commit = repo.head()?.peel_to_commit()?;
         repo.branch(branch, &commit, false)?;
+        Ok(())
+    }
+
+    fn write_config_project(&self, project: &str) -> Result<()> {
+        self.write_config_with_discovery(project, "_garc-project-mismatch._tcp.local.", None)
+    }
+
+    fn write_config_with_discovery(
+        &self,
+        project: &str,
+        service_type: &str,
+        mdns_port: Option<u16>,
+    ) -> Result<()> {
+        let mdns_port_line = mdns_port
+            .map(|port| format!("mdns_port = {port}\n"))
+            .unwrap_or_default();
+        let config = format!(
+            "[agent]\nid = \"local-agent\"\nproject = \"{project}\"\nbranch = \"main\"\n\n[discovery]\nservice_type = \"{service_type}\"\n{mdns_port_line}discovery_timeout_ms = 3000\n"
+        );
+        fs::write(self.repo_dir.join(".camp.toml"), config)?;
+        Ok(())
+    }
+
+    fn write_local_claim_state(&self, branch: &str) -> Result<()> {
+        let garc_dir = self.repo_dir.join(".git").join("garc");
+        fs::create_dir_all(&garc_dir)?;
+        fs::write(
+            garc_dir.join("claim-state.json"),
+            format!(
+                "{{\n  \"agent_id\": \"local-agent\",\n  \"current_project\": \"{}\",\n  \"current_branch\": \"main\",\n  \"intent_branch\": \"{}\"\n}}\n",
+                self.project_name, branch
+            ),
+        )?;
         Ok(())
     }
 
