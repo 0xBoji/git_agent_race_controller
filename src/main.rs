@@ -137,6 +137,7 @@ fn run_checkout(
             occupied_by: None,
             camp_update_status: camp_update.status,
             camp_update_exit_code: camp_update.exit_code,
+            camp_update_stdout: camp_update.stdout,
             camp_update_stderr: camp_update.stderr,
             decision_basis: DecisionBasis::ForceBypass,
             observed_claims: Vec::new(),
@@ -236,6 +237,7 @@ fn run_checkout(
                     occupied_by: None,
                     camp_update_status: camp_update.status,
                     camp_update_exit_code: camp_update.exit_code,
+                    camp_update_stdout: camp_update.stdout,
                     camp_update_stderr: camp_update.stderr,
                     decision_basis: if observed_claims.is_empty() {
                         DecisionBasis::MeshClear
@@ -286,6 +288,7 @@ fn run_checkout(
                     occupied_by: Some(by),
                     camp_update_status: camp_update.status,
                     camp_update_exit_code: camp_update.exit_code,
+                    camp_update_stdout: camp_update.stdout,
                     camp_update_stderr: camp_update.stderr,
                     decision_basis: if active_occupier.is_some() {
                         DecisionBasis::BranchOccupied
@@ -611,16 +614,19 @@ fn update_local_state(
         Ok(output) if output.status.success() => Ok(CampUpdateResult {
             status: "synced",
             exit_code: output.status.code(),
+            stdout: output_string(&output.stdout),
             stderr: stderr_string(&output.stderr),
         }),
         Ok(output) => Ok(CampUpdateResult {
             status: "failed",
             exit_code: output.status.code(),
+            stdout: output_string(&output.stdout),
             stderr: stderr_string(&output.stderr),
         }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(CampUpdateResult {
             status: "skipped",
             exit_code: None,
+            stdout: None,
             stderr: None,
         }),
         Err(error) => Err(error).context("failed to execute `camp update`"),
@@ -630,16 +636,17 @@ fn update_local_state(
 struct CampUpdateResult {
     status: &'static str,
     exit_code: Option<i32>,
+    stdout: Option<String>,
     stderr: Option<String>,
 }
 
 fn stderr_string(stderr: &[u8]) -> Option<String> {
-    let stderr = String::from_utf8_lossy(stderr).trim().to_owned();
-    if stderr.is_empty() {
-        None
-    } else {
-        Some(stderr)
-    }
+    output_string(stderr)
+}
+
+fn output_string(bytes: &[u8]) -> Option<String> {
+    let text = String::from_utf8_lossy(bytes).trim().to_owned();
+    if text.is_empty() { None } else { Some(text) }
 }
 
 fn detect_camp_status() -> &'static str {

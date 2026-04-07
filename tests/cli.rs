@@ -89,7 +89,7 @@ fn checkout_reports_skipped_when_camp_update_is_unavailable() -> Result<()> {
 fn checkout_reports_synced_when_camp_update_succeeds() -> Result<()> {
     let harness = TestRepo::new("_garc-checkout-update-synced._tcp.local.")?;
     harness.create_branch("feature-login")?;
-    let camp_dir = harness.write_camp_stub("#!/bin/sh\nexit 0\n")?;
+    let camp_dir = harness.write_camp_stub("#!/bin/sh\nprintf ' ok \\n'\nexit 0\n")?;
 
     let output = harness.run_with_env(
         ["checkout", "feature-login", "--json"],
@@ -100,6 +100,7 @@ fn checkout_reports_synced_when_camp_update_succeeds() -> Result<()> {
     assert!(output.status.success());
     assert_eq!(json["camp_update_status"], "synced");
     assert_eq!(json["camp_update_exit_code"], 0);
+    assert_eq!(json["camp_update_stdout"], "ok");
     Ok(())
 }
 
@@ -107,7 +108,7 @@ fn checkout_reports_synced_when_camp_update_succeeds() -> Result<()> {
 fn checkout_reports_failed_when_camp_update_exits_non_zero() -> Result<()> {
     let harness = TestRepo::new("_garc-checkout-update-failed._tcp.local.")?;
     harness.create_branch("feature-login")?;
-    let camp_dir = harness.write_camp_stub("#!/bin/sh\necho boom >&2\nexit 7\n")?;
+    let camp_dir = harness.write_camp_stub("#!/bin/sh\necho warn\n echo boom >&2\nexit 7\n")?;
 
     let output = harness.run_with_env(
         ["checkout", "feature-login", "--json"],
@@ -118,6 +119,7 @@ fn checkout_reports_failed_when_camp_update_exits_non_zero() -> Result<()> {
     assert!(output.status.success());
     assert_eq!(json["camp_update_status"], "failed");
     assert_eq!(json["camp_update_exit_code"], 7);
+    assert_eq!(json["camp_update_stdout"], "warn");
     assert!(
         json["camp_update_stderr"]
             .as_str()

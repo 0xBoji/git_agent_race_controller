@@ -32,6 +32,8 @@ pub struct CheckoutOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub camp_update_exit_code: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub camp_update_stdout: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub camp_update_stderr: Option<String>,
     pub decision_basis: DecisionBasis,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -157,6 +159,11 @@ pub fn print_checkout(output: &CheckoutOutput, json: bool) -> Result<()> {
         println!("camp update: {}", output.camp_update_status);
         if let Some(exit_code) = output.camp_update_exit_code {
             println!("camp update exit code: {exit_code}");
+        }
+        if let Some(stdout) = &output.camp_update_stdout
+            && !stdout.trim().is_empty()
+        {
+            println!("camp update stdout: {}", stdout.trim());
         }
         if let Some(stderr) = &output.camp_update_stderr
             && !stderr.trim().is_empty()
@@ -345,6 +352,7 @@ mod tests {
             occupied_by: Some("qa-agent-01".to_owned()),
             camp_update_status: "synced",
             camp_update_exit_code: Some(0),
+            camp_update_stdout: Some("ok".to_owned()),
             camp_update_stderr: None,
             decision_basis: DecisionBasis::ClaimArbitrationLost,
             observed_claims: vec!["qa-agent-01".to_owned()],
@@ -381,6 +389,7 @@ mod tests {
         assert!(json.contains("\"occupied_by\": \"qa-agent-01\""));
         assert!(json.contains("\"camp_update_status\": \"synced\""));
         assert!(json.contains("\"camp_update_exit_code\": 0"));
+        assert!(json.contains("\"camp_update_stdout\": \"ok\""));
         assert!(json.contains("\"decision_basis\": \"claim_arbitration_lost\""));
         assert!(json.contains("\"observed_claims\": ["));
         assert!(json.contains("\"observed_peers\": ["));

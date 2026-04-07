@@ -136,6 +136,7 @@ For richer agent/operator observability, checkout JSON should also support optio
 - `camp_update_status`
 - `camp_update_exit_code`
 - `camp_update_stderr`
+- `camp_update_stdout`
 
 `observed_peers` should provide a concise machine-readable trace of the same-project peers that influenced the decision, including at least:
 
@@ -154,7 +155,7 @@ where `at_ms` is a relative millisecond offset from the start of the checkout fl
 
 `mesh_read_attempts` should report how many mesh read attempts were needed after claim publication. `mesh_read_backoff_ms` should report the bounded backoff schedule used for those retries so operators can see whether a checkout succeeded immediately or only after jitter settled.
 
-`camp_update_status` should continue to summarize whether the post-checkout mesh sync succeeded, was skipped, or failed. When available, `camp_update_exit_code` and `camp_update_stderr` should provide extra process-level detail for debugging failed sync attempts without forcing operators to rerun the command manually.
+`camp_update_status` should continue to summarize whether the post-checkout mesh sync succeeded, was skipped, or failed. When available, `camp_update_exit_code`, `camp_update_stdout`, and `camp_update_stderr` should provide extra process-level detail for debugging sync attempts without forcing operators to rerun the command manually. Text fields should be trimmed and omitted when empty.
 
 ### `garc status`
 Returns a unified view of the local Git status AND the mesh branch status.
