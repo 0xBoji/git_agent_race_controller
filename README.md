@@ -300,6 +300,7 @@ garc status --config path/to/.camp.toml
 ```
 
 Shows the current local branch, actively occupied branches on the mesh, and any pending `intent_branch` claims.
+If a local checkout is currently mid-claim, the project-level JSON summary includes that local in-flight claim as well.
 
 ---
 
@@ -378,15 +379,26 @@ Example `garc checkout feat --json` (diverted state):
     "claim_settle_ms:150",
     "claim_settle_complete",
     "observed_peer_count:1",
+    "mesh_read_attempts:1",
     "active_occupier:qa-agent-01",
     "decision:diverted:feat--coder-01"
+  ],
+  "decision_trace_entries": [
+    {
+      "event": "published_claim:feat",
+      "at_ms": 0
+    },
+    {
+      "event": "decision:diverted:feat--coder-01",
+      "at_ms": 151
+    }
   ],
   "actual_branch": "feat--coder-01",
   "message": "Target branch is currently locked. Checked out sub-branch to prevent race conditions."
 }
 ```
 
-LLMs can parse the `actual_branch` to immediately know where to perform their `git commit` and `git push` commands. The `decision_trace` array provides immediate debuggability for agent reasoning chains.
+LLMs can parse the `actual_branch` to immediately know where to perform their `git commit` and `git push` commands. The `decision_trace` array provides immediate debuggability for agent reasoning chains, while `decision_trace_entries` adds relative timing context for post-mortem debugging.
 
 ---
 
