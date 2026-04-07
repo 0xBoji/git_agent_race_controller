@@ -33,7 +33,7 @@ use crate::{
     mesh::{
         LocalClaimState, discover_peers, discover_peers_with_retry,
         discover_peers_with_retry_metadata, publish_branch_claim, read_local_claim_state,
-        update_local_branch,
+        update_local_branch, write_last_checkout_trace,
     },
     output::{
         ActiveClaimSummary, CheckoutOutput, CheckoutStatus, CommitOutput, CommitStatus,
@@ -137,6 +137,8 @@ fn run_checkout(
             observed_claims: Vec::new(),
             observed_peers: Vec::new(),
             claim_winner: None,
+            mesh_read_attempts: 0,
+            mesh_read_backoff_ms: Vec::new(),
             decision_trace: vec!["force_bypass".to_owned(), "decision:checked_out".to_owned()],
             decision_trace_entries,
             actual_branch: requested_branch.to_owned(),
@@ -172,6 +174,9 @@ fn run_checkout(
             );
         }
         let (peers, read_attempts) = discover_peers_with_retry_metadata(&config)?;
+        let mesh_read_backoff_ms = (0..read_attempts.saturating_sub(1))
+            .map(crate::mesh::retry_backoff_ms)
+            .collect::<Vec<_>>();
         decision_trace.push(format!("observed_peer_count:{}", peers.len()));
         decision_trace.push(format!("mesh_read_attempts:{read_attempts}"));
         record_trace_entry(
@@ -232,6 +237,8 @@ fn run_checkout(
                     observed_claims,
                     observed_peers,
                     claim_winner,
+                    mesh_read_attempts: read_attempts,
+                    mesh_read_backoff_ms,
                     decision_trace,
                     decision_trace_entries,
                     actual_branch: requested_branch.to_owned(),
@@ -277,6 +284,8 @@ fn run_checkout(
                     observed_claims,
                     observed_peers,
                     claim_winner,
+                    mesh_read_attempts: read_attempts,
+                    mesh_read_backoff_ms,
                     decision_trace,
                     decision_trace_entries,
                     actual_branch,
@@ -286,6 +295,7 @@ fn run_checkout(
         }
     };
 
+    let _ = write_last_checkout_trace(&repo.git_dir, &output);
     print_checkout(&output, json)
 }
 
