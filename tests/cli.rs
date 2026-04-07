@@ -192,6 +192,9 @@ fn checkout_accepts_claim_settle_ms_cli_override() -> Result<()> {
     assert_eq!(json["actual_branch"], "feature-login");
     let trace_path = harness.repo_dir.join(".git/garc/last-checkout-trace.json");
     assert!(trace_path.exists());
+    let history_dir = harness.repo_dir.join(".git/garc/trace-history");
+    assert!(history_dir.exists());
+    assert_eq!(fs::read_dir(&history_dir)?.count(), 1);
     let persisted_trace: Value = serde_json::from_slice(&fs::read(trace_path)?)?;
     assert_eq!(persisted_trace["requested_branch"], "feature-login");
     assert_eq!(persisted_trace["status"], "checked_out");
