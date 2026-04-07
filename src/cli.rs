@@ -16,6 +16,8 @@ impl Cli {
             Command::Init(args) => args.json,
             Command::Checkout(args) => args.json,
             Command::Status(args) => args.json,
+            Command::Up(args) => args.json,
+            Command::Commit(args) => args.json,
         }
     }
 }
@@ -28,6 +30,10 @@ pub enum Command {
     Checkout(CheckoutArgs),
     /// Show local git state alongside discovered mesh peers.
     Status(StatusArgs),
+    /// Bring this agent online by delegating to `camp up`.
+    Up(UpArgs),
+    /// Mesh-guarded `git commit`: verifies branch is uncontested before committing.
+    Commit(CommitArgs),
 }
 
 #[derive(Debug, Args)]
@@ -66,4 +72,27 @@ pub struct StatusArgs {
     /// Emit machine-readable JSON.
     #[arg(long)]
     pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct UpArgs {
+    /// Path to the CAMP config file.
+    #[arg(long, default_value = ".camp.toml")]
+    pub config: PathBuf,
+    /// Emit machine-readable JSON preamble before delegating to camp.
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct CommitArgs {
+    /// Path to the CAMP config file.
+    #[arg(long, default_value = ".camp.toml")]
+    pub config: PathBuf,
+    /// Emit machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
+    /// Arguments forwarded verbatim to `git commit` after the mesh guard passes.
+    #[arg(last = true)]
+    pub passthrough: Vec<String>,
 }
