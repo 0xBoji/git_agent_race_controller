@@ -128,6 +128,7 @@ For richer agent/operator observability, checkout JSON should also support optio
 - `claim_winner`
 - `observed_peers`
 - `decision_trace`
+- `decision_trace_entries`
 
 `observed_peers` should provide a concise machine-readable trace of the same-project peers that influenced the decision, including at least:
 
@@ -136,6 +137,13 @@ For richer agent/operator observability, checkout JSON should also support optio
 - `intent_branch` when present
 
 `decision_trace` should provide a compact, ordered explanation of the coordination flow, for example claim publication, mesh re-read, arbitration outcome, and final checkout decision.
+
+`decision_trace_entries` should provide a structured, timestamped variant of that same story. Each entry should include at least:
+
+- `event`
+- `at_ms`
+
+where `at_ms` is a relative millisecond offset from the start of the checkout flow. This keeps the trace useful for debugging without requiring synchronized wall clocks across machines.
 
 ### `garc status`
 Returns a unified view of the local Git status AND the mesh branch status.
@@ -169,6 +177,7 @@ When a local checkout is actively in the claim-handshake phase, `status --json` 
 - **Local Claim Visibility:** If GARC persists local in-flight claim state for observability, that state must be ephemeral and automatically removed when the checkout decision completes or the process exits normally.
 - **Override Precedence:** If `--claim-settle-ms` is provided, it overrides `.camp.toml` for that invocation only and must not rewrite the config file.
 - **Mesh Re-read Reliability:** After publishing a claim, GARC may retry mesh re-read a small number of times before failing closed. Retries must prefer safety and determinism over speed.
+- **Retry Backoff Policy:** Mesh re-read retries should use a bounded backoff schedule rather than a tight constant loop, so local LAN jitter can settle without turning one checkout into a long stall.
 - **Performance:** The claim handshake should add only a short settle window appropriate for LAN discovery. Correctness is more important than chasing a < 2ms idealized path.
 
 ## 9. Verification Requirements
@@ -187,6 +196,8 @@ The implementation must include automated coverage for at least the following:
 - local in-flight claim visibility in status summaries
 - checkout JSON `observed_peers` trace shape
 - checkout JSON `decision_trace` shape
+- checkout JSON `decision_trace_entries` timestamped shape
+- retry/backoff helper behavior
 - hook installer idempotence remains intact
 
 ## 10. Future Roadmap
@@ -206,6 +217,7 @@ The implementation must include automated coverage for at least the following:
 - Model the CAMP mDNS service as a discoverable service type (e.g. `_camp._tcp.local`) with TXT records carrying `agent_id`, `current_branch`, `current_project`, and an optional transient `intent_branch` field.
 - Support `discovery.claim_settle_ms` in `.camp.toml` as an optional claim-arbitration tuning knob.
 - Support `--claim-settle-ms` as a per-command override for checkout claim arbitration timing.
+- Use a bounded retry/backoff strategy when re-reading the mesh after claim publication.
 - The `engine` module must implement the collision detection logic cleanly — query the mesh, compare `current_project` against the local repo name, and return typed checkout/arbitration decisions rather than ad-hoc booleans.
 - All `garc checkout` output paths (clear, diverted, forced) must serialize to the JSON schema shown in the spec when `--json` is passed.
 - `status --json` should provide machine-readable branch occupancy and active-claim summaries for the current project.
