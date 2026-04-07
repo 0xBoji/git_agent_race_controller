@@ -18,7 +18,7 @@ const CURRENT_PROJECT: &str = "current_project";
 const INTENT_BRANCH: &str = "intent_branch";
 const CLAIM_PORT_FALLBACK: u16 = 7000;
 const CLAIM_STATE_FILE_NAME: &str = "claim-state.json";
-const CLAIM_DISCOVERY_RETRIES: usize = 2;
+const CLAIM_DISCOVERY_RETRIES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeshPeer {
@@ -163,15 +163,19 @@ pub fn publish_branch_claim(
 }
 
 pub fn discover_peers_with_retry(config: &CampConfig) -> Result<Vec<MeshPeer>> {
+    discover_peers_with_retry_metadata(config).map(|(peers, _)| peers)
+}
+
+pub fn discover_peers_with_retry_metadata(config: &CampConfig) -> Result<(Vec<MeshPeer>, usize)> {
     let mut last_error = None;
 
     for attempt in 0..CLAIM_DISCOVERY_RETRIES {
         match discover_peers(config) {
-            Ok(peers) => return Ok(peers),
+            Ok(peers) => return Ok((peers, attempt + 1)),
             Err(error) => {
                 last_error = Some(error);
                 if attempt + 1 < CLAIM_DISCOVERY_RETRIES {
-                    thread::sleep(Duration::from_millis(25));
+                    thread::sleep(Duration::from_millis(retry_backoff_ms(attempt)));
                 }
             }
         }
@@ -327,4 +331,25 @@ fn write_local_claim_state(git_dir: &Path, claim_state: &LocalClaimState) -> Res
 
 fn claim_state_path(git_dir: &Path) -> PathBuf {
     git_dir.join("garc").join(CLAIM_STATE_FILE_NAME)
+}
+
+pub fn retry_backoff_ms(attempt: usize) -> u64 {
+    match attempt {
+        0 => 25,
+        1 => 50,
+        _ => 100,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::retry_backoff_ms;
+
+    #[test]
+    fn retry_backoff_grows_without_exploding() {
+        assert_eq!(retry_backoff_ms(0), 25);
+        assert_eq!(retry_backoff_ms(1), 50);
+        assert_eq!(retry_backoff_ms(2), 100);
+        assert_eq!(retry_backoff_ms(3), 100);
+    }
 }
