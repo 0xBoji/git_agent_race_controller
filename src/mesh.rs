@@ -18,6 +18,7 @@ const CURRENT_PROJECT: &str = "current_project";
 const INTENT_BRANCH: &str = "intent_branch";
 const CLAIM_PORT_FALLBACK: u16 = 7000;
 const CLAIM_STATE_FILE_NAME: &str = "claim-state.json";
+const LAST_TRACE_FILE_NAME: &str = "last-checkout-trace.json";
 const CLAIM_DISCOVERY_RETRIES: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -255,6 +256,21 @@ pub fn read_local_claim_state(git_dir: &Path) -> Result<Option<LocalClaimState>>
     }
 }
 
+pub fn write_last_checkout_trace(git_dir: &Path, trace: &impl Serialize) -> Result<PathBuf> {
+    let path = garc_state_dir(git_dir).join(LAST_TRACE_FILE_NAME);
+    fs::create_dir_all(garc_state_dir(git_dir)).with_context(|| {
+        format!(
+            "failed to create garc state directory `{}`",
+            garc_state_dir(git_dir).display()
+        )
+    })?;
+    let contents =
+        serde_json::to_string_pretty(trace).context("failed to serialize last checkout trace")?;
+    fs::write(&path, format!("{contents}\n"))
+        .with_context(|| format!("failed to write last checkout trace `{}`", path.display()))?;
+    Ok(path)
+}
+
 fn required_property(
     service: &ResolvedService,
     fullname: &str,
@@ -313,14 +329,12 @@ fn sanitize_dns_label(value: &str) -> String {
 
 fn write_local_claim_state(git_dir: &Path, claim_state: &LocalClaimState) -> Result<PathBuf> {
     let path = claim_state_path(git_dir);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| {
-            format!(
-                "failed to create claim state directory `{}`",
-                parent.display()
-            )
-        })?;
-    }
+    fs::create_dir_all(garc_state_dir(git_dir)).with_context(|| {
+        format!(
+            "failed to create claim state directory `{}`",
+            garc_state_dir(git_dir).display()
+        )
+    })?;
 
     let contents = serde_json::to_string_pretty(claim_state)
         .context("failed to serialize local claim state")?;
@@ -330,7 +344,11 @@ fn write_local_claim_state(git_dir: &Path, claim_state: &LocalClaimState) -> Res
 }
 
 fn claim_state_path(git_dir: &Path) -> PathBuf {
-    git_dir.join("garc").join(CLAIM_STATE_FILE_NAME)
+    garc_state_dir(git_dir).join(CLAIM_STATE_FILE_NAME)
+}
+
+fn garc_state_dir(git_dir: &Path) -> PathBuf {
+    git_dir.join("garc")
 }
 
 pub fn retry_backoff_ms(attempt: usize) -> u64 {
