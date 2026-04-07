@@ -72,6 +72,7 @@ pub struct StatusOutput {
     pub agent_id: String,
     pub project: String,
     pub local_branch: String,
+    pub camp_status: &'static str,
     pub peers: Vec<MeshPeer>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub occupied_branches: Vec<OccupiedBranchSummary>,
@@ -232,6 +233,7 @@ pub fn print_status(output: &StatusOutput, json: bool) -> Result<()> {
         println!("project: {}", output.project);
         println!("local agent: {}", output.agent_id);
         println!("local branch: {}", output.local_branch);
+        println!("camp status: {}", output.camp_status);
         if output.peers.is_empty() {
             println!("mesh peers: none discovered");
         } else {

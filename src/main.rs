@@ -326,6 +326,7 @@ fn run_status(json: bool, config_arg: &std::path::Path) -> Result<()> {
         agent_id: config.agent.id.clone(),
         project,
         local_branch: branch.clone(),
+        camp_status: detect_camp_status(),
         occupied_branches: occupied_branch_summaries(&config.agent.id, &branch, &peers),
         active_claims: active_claim_summaries(&config.agent.id, local_claim_state.as_ref(), &peers),
         peers,
@@ -607,6 +608,20 @@ fn update_local_state(
         Ok(_) => Ok("failed"),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok("skipped"),
         Err(error) => Err(error).context("failed to execute `camp update`"),
+    }
+}
+
+fn detect_camp_status() -> &'static str {
+    match ProcessCommand::new("camp")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+    {
+        Ok(status) if status.success() => "running",
+        Ok(_) => "unknown",
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "not_found",
+        Err(_) => "unknown",
     }
 }
 

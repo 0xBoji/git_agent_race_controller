@@ -325,7 +325,7 @@ fn checkout_fails_closed_when_claim_publication_cannot_start() -> Result<()> {
 fn status_reports_local_branch_and_mesh_peers() -> Result<()> {
     let harness = TestRepo::new("_garc-status-test._tcp.local.")?;
     harness.write_local_claim_state("feature-login")?;
-    let output = harness.run_with_snapshot(
+    let output = harness.run_with_snapshot_and_env(
         ["status", "--json"],
         json!([
             {
@@ -344,11 +344,13 @@ fn status_reports_local_branch_and_mesh_peers() -> Result<()> {
                 "port": 7001
             }
         ]),
+        &[("PATH", "")],
     )?;
     let json: Value = serde_json::from_slice(&output.stdout)?;
 
     assert!(output.status.success());
     assert_eq!(json["status"], "ok");
+    assert_eq!(json["camp_status"], "not_found");
     assert_eq!(json["local_branch"], "main");
     assert_eq!(json["peers"].as_array().map(Vec::len), Some(1));
     assert_eq!(json["peers"][0]["agent_id"], "reviewer-01");
@@ -380,6 +382,22 @@ fn status_reports_local_branch_and_mesh_peers() -> Result<()> {
     assert_eq!(json["active_claims"][0]["claimants"][0], "local-agent");
     assert_eq!(json["active_claims"][0]["claimants"][1], "reviewer-01");
     assert_eq!(json["active_claims"][0]["claim_winner"], "local-agent");
+    Ok(())
+}
+
+#[test]
+fn status_reports_running_when_camp_binary_is_available() -> Result<()> {
+    let harness = TestRepo::new("_garc-status-camp-running._tcp.local.")?;
+    let camp_dir = harness.write_camp_stub("#!/bin/sh\nexit 0\n")?;
+
+    let output = harness.run_with_env(
+        ["status", "--json"],
+        &[("PATH", camp_dir.to_string_lossy().as_ref())],
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["camp_status"], "running");
     Ok(())
 }
 
@@ -500,6 +518,27 @@ impl TestRepo {
             .env("GARC_MESH_SNAPSHOT_JSON", serde_json::to_string(&snapshot)?)
             .current_dir(&self.repo_dir)
             .output()?)
+    }
+
+    fn run_with_snapshot_and_env<I, S>(
+        &self,
+        args: I,
+        snapshot: Value,
+        envs: &[(&str, &str)],
+    ) -> Result<std::process::Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_garc"));
+        command
+            .args(args)
+            .env("GARC_MESH_SNAPSHOT_JSON", serde_json::to_string(&snapshot)?)
+            .current_dir(&self.repo_dir);
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        Ok(command.output()?)
     }
 
     fn create_branch(&self, branch: &str) -> Result<()> {
