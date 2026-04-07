@@ -36,6 +36,8 @@ pub struct CheckoutOutput {
     pub claim_winner: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub decision_trace: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub decision_trace_entries: Vec<DecisionTraceEntry>,
     pub actual_branch: String,
     pub message: String,
 }
@@ -91,6 +93,12 @@ pub struct ObservedPeerOutput {
     pub current_branch: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub intent_branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DecisionTraceEntry {
+    pub event: String,
+    pub at_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -150,6 +158,12 @@ pub fn print_checkout(output: &CheckoutOutput, json: bool) -> Result<()> {
             println!("decision trace:");
             for step in &output.decision_trace {
                 println!("- {step}");
+            }
+        }
+        if !output.decision_trace_entries.is_empty() {
+            println!("decision trace entries:");
+            for entry in &output.decision_trace_entries {
+                println!("- [{}ms] {}", entry.at_ms, entry.event);
             }
         }
     }
@@ -263,7 +277,7 @@ pub fn print_error(message: String) -> Result<()> {
 mod tests {
     use super::{
         CheckoutOutput, CheckoutStatus, CommitOutput, CommitStatus, DecisionBasis,
-        ObservedPeerOutput,
+        DecisionTraceEntry, ObservedPeerOutput,
     };
 
     #[test]
@@ -285,6 +299,16 @@ mod tests {
                 "observed_claimants:qa-agent-01".to_owned(),
                 "decision:diverted".to_owned(),
             ],
+            decision_trace_entries: vec![
+                DecisionTraceEntry {
+                    event: "published_claim".to_owned(),
+                    at_ms: 0,
+                },
+                DecisionTraceEntry {
+                    event: "decision:diverted".to_owned(),
+                    at_ms: 10,
+                },
+            ],
             actual_branch: "feature-login--coder-01".to_owned(),
             message: "Target branch is currently locked. Checked out sub-branch to prevent race conditions.".to_owned(),
         };
@@ -298,6 +322,7 @@ mod tests {
         assert!(json.contains("\"observed_peers\": ["));
         assert!(json.contains("\"claim_winner\": \"qa-agent-01\""));
         assert!(json.contains("\"decision_trace\": ["));
+        assert!(json.contains("\"decision_trace_entries\": ["));
         assert!(json.contains("\"actual_branch\": \"feature-login--coder-01\""));
     }
 
