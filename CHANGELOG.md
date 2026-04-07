@@ -13,4 +13,3 @@ All notable changes to this project will be documented in this file.
 - `garc up --json` now flushes its preamble before delegating to `camp up`.
 
 The format is based on Keep a Changelog, and releases are expected to be managed by release-plz.
-The format is based on Keep a Changelog, and releases are expected to be managed by release-plz.
