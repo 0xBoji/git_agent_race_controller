@@ -50,6 +50,16 @@ pub struct InitOutput {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct UpOutput {
+    pub status: &'static str,
+    pub agent_id: String,
+    pub project: String,
+    pub branch: String,
+    pub delegated_command: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct StatusOutput {
     pub status: &'static str,
     pub agent_id: String,
@@ -86,6 +96,22 @@ pub struct ObservedPeerOutput {
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorOutput {
     pub status: &'static str,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitStatus {
+    Committed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CommitOutput {
+    pub status: CommitStatus,
+    pub branch: String,
+    pub git_exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
     pub message: String,
 }
 
@@ -144,6 +170,20 @@ pub fn print_init(output: &InitOutput, json: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn print_up(output: &UpOutput, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(output)?);
+    } else {
+        println!("{}", output.message);
+        println!("agent id: {}", output.agent_id);
+        println!("project: {}", output.project);
+        println!("branch: {}", output.branch);
+        println!("delegated command: {}", output.delegated_command);
+    }
+
+    Ok(())
+}
+
 pub fn print_status(output: &StatusOutput, json: bool) -> Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(output)?);
@@ -191,6 +231,25 @@ pub fn print_status(output: &StatusOutput, json: bool) -> Result<()> {
     Ok(())
 }
 
+pub fn print_commit(output: &CommitOutput, json: bool) -> Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(output)?);
+    } else {
+        println!("{}", output.message);
+        println!("branch: {}", output.branch);
+        if !output.stdout.trim().is_empty() {
+            println!("git stdout:");
+            print!("{}", output.stdout);
+        }
+        if !output.stderr.trim().is_empty() {
+            println!("git stderr:");
+            eprint!("{}", output.stderr);
+        }
+    }
+
+    Ok(())
+}
+
 pub fn print_error(message: String) -> Result<()> {
     let output = ErrorOutput {
         status: "error",
@@ -202,7 +261,10 @@ pub fn print_error(message: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckoutOutput, CheckoutStatus, DecisionBasis, ObservedPeerOutput};
+    use super::{
+        CheckoutOutput, CheckoutStatus, CommitOutput, CommitStatus, DecisionBasis,
+        ObservedPeerOutput,
+    };
 
     #[test]
     fn checkout_output_serializes_to_expected_shape() {
@@ -237,5 +299,23 @@ mod tests {
         assert!(json.contains("\"claim_winner\": \"qa-agent-01\""));
         assert!(json.contains("\"decision_trace\": ["));
         assert!(json.contains("\"actual_branch\": \"feature-login--coder-01\""));
+    }
+
+    #[test]
+    fn commit_output_serializes_to_expected_shape() {
+        let output = CommitOutput {
+            status: CommitStatus::Committed,
+            branch: "main".to_owned(),
+            git_exit_code: 0,
+            stdout: "created commit\n".to_owned(),
+            stderr: String::new(),
+            message: "Mesh clear. Executed git commit.".to_owned(),
+        };
+
+        let json = serde_json::to_string_pretty(&output).expect("commit output should serialize");
+        assert!(json.contains("\"status\": \"committed\""));
+        assert!(json.contains("\"branch\": \"main\""));
+        assert!(json.contains("\"git_exit_code\": 0"));
+        assert!(json.contains("\"stdout\": \"created commit\\n\""));
     }
 }

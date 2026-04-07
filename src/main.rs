@@ -33,9 +33,9 @@ use crate::{
         read_local_claim_state, update_local_branch,
     },
     output::{
-        ActiveClaimSummary, CheckoutOutput, CheckoutStatus, DecisionBasis, InitOutput,
-        ObservedPeerOutput, OccupiedBranchSummary, StatusOutput, print_checkout, print_error,
-        print_init, print_status,
+        ActiveClaimSummary, CheckoutOutput, CheckoutStatus, CommitOutput, CommitStatus,
+        DecisionBasis, InitOutput, ObservedPeerOutput, OccupiedBranchSummary, StatusOutput,
+        UpOutput, print_checkout, print_commit, print_error, print_init, print_status, print_up,
     },
 };
 
@@ -71,6 +71,8 @@ fn run(cli: &Cli) -> Result<()> {
             args.claim_settle_ms,
         ),
         Command::Status(args) => run_status(args.json, &args.config),
+        Command::Up(args) => run_up(args.json, &args.config),
+        Command::Commit(args) => run_commit(args.json, &args.config, &args.passthrough),
     }
 }
 
@@ -235,6 +237,131 @@ fn run_status(json: bool, config_arg: &std::path::Path) -> Result<()> {
         peers,
     };
     print_status(&output, json)
+}
+
+fn run_up(json: bool, config_arg: &std::path::Path) -> Result<()> {
+    let repo = open_repo_from(&env::current_dir().context("failed to resolve current directory")?)?;
+    let config_path = resolve_config_path(&repo.repo_root, config_arg);
+    let mut config = CampConfig::from_path(&config_path)?;
+    let project = validated_project(&repo.project_name, &config, &config_path)?;
+    let branch = current_branch(&repo.repo)?;
+    update_local_branch(&config_path, &mut config, &branch)?;
+
+    let delegated_command = format!("camp up --config {}", config_path.display());
+    let output = UpOutput {
+        status: "delegating",
+        agent_id: config.agent.id.clone(),
+        project,
+        branch,
+        delegated_command: delegated_command.clone(),
+        message: "Validated repo state and delegating mesh presence to `camp up`.".to_owned(),
+    };
+
+    if json {
+        print_up(&output, true)?;
+    }
+
+    let mut command = ProcessCommand::new("camp");
+    command.arg("up").arg("--config").arg(&config_path);
+    if json {
+        command.arg("--json");
+    }
+
+    let status = command.status().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!(
+                "failed to execute `camp up`; `camp` was not found in $PATH. Install it with `bash <(curl -fsSL https://raw.githubusercontent.com/0xBoji/coding_agent_mesh_presence/main/scripts/install.sh)`"
+            )
+        } else {
+            anyhow::anyhow!("failed to execute `{delegated_command}`: {error}")
+        }
+    })?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(anyhow::anyhow!(
+            "`{delegated_command}` exited with status {}",
+            status
+                .code()
+                .map_or_else(|| "signal".to_owned(), |code| code.to_string())
+        ))
+    }
+}
+
+fn run_commit(json: bool, config_arg: &std::path::Path, passthrough: &[String]) -> Result<()> {
+    let repo = open_repo_from(&env::current_dir().context("failed to resolve current directory")?)?;
+    let config_path = resolve_config_path(&repo.repo_root, config_arg);
+    let mut config = CampConfig::from_path(&config_path)?;
+    let project = validated_project(&repo.project_name, &config, &config_path)?;
+    let branch = current_branch(&repo.repo)?;
+    update_local_branch(&config_path, &mut config, &branch)?;
+
+    let peers = discover_peers_with_retry(&config)?;
+    match detect_collision(&peers, &project, &branch, &config.agent.id) {
+        CollisionResult::Clear => {}
+        CollisionResult::Occupied { by } => {
+            return Err(anyhow::anyhow!(
+                "refusing to commit on contested branch `{branch}`; occupied by `{by}`"
+            ));
+        }
+    }
+
+    let mut command = ProcessCommand::new("git");
+    command
+        .current_dir(&repo.repo_root)
+        .arg("commit")
+        .args(passthrough);
+
+    if json {
+        let output = command.output().map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("failed to execute `git commit`; `git` was not found in $PATH")
+            } else {
+                anyhow::anyhow!("failed to execute `git commit`: {error}")
+            }
+        })?;
+
+        if output.status.success() {
+            let commit_output = CommitOutput {
+                status: CommitStatus::Committed,
+                branch,
+                git_exit_code: output.status.code().unwrap_or(0),
+                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                message: "Mesh clear. Executed git commit.".to_owned(),
+            };
+            print_commit(&commit_output, true)
+        } else {
+            Err(anyhow::anyhow!(
+                "git commit exited with status {}: {}",
+                output
+                    .status
+                    .code()
+                    .map_or_else(|| "signal".to_owned(), |code| code.to_string()),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ))
+        }
+    } else {
+        let status = command.status().map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                anyhow::anyhow!("failed to execute `git commit`; `git` was not found in $PATH")
+            } else {
+                anyhow::anyhow!("failed to execute `git commit`: {error}")
+            }
+        })?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "`git commit` exited with status {}",
+                status
+                    .code()
+                    .map_or_else(|| "signal".to_owned(), |code| code.to_string())
+            ))
+        }
+    }
 }
 
 fn resolve_claim_settle_ms(config_value: u64, override_value: Option<u64>) -> u64 {
