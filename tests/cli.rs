@@ -57,6 +57,74 @@ fn trace_returns_latest_and_history_json() -> Result<()> {
 }
 
 #[test]
+fn checkout_reports_skipped_when_camp_update_is_unavailable() -> Result<()> {
+    let harness = TestRepo::new("_garc-checkout-update-skipped._tcp.local.")?;
+    harness.create_branch("feature-login")?;
+
+    let output = harness.run_with_env(["checkout", "feature-login", "--json"], &[("PATH", "")])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["camp_update_status"], "skipped");
+    Ok(())
+}
+
+#[test]
+fn checkout_reports_synced_when_camp_update_succeeds() -> Result<()> {
+    let harness = TestRepo::new("_garc-checkout-update-synced._tcp.local.")?;
+    harness.create_branch("feature-login")?;
+    let camp_dir = harness.write_camp_stub("#!/bin/sh\nexit 0\n")?;
+
+    let output = harness.run_with_env(
+        ["checkout", "feature-login", "--json"],
+        &[("PATH", camp_dir.to_string_lossy().as_ref())],
+    )?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["camp_update_status"], "synced");
+    Ok(())
+}
+
+#[test]
+fn status_uses_rest_fallback_when_available() -> Result<()> {
+    let harness = TestRepo::new("_garc-status-rest._tcp.local.")?;
+    let output =
+        harness.run_with_env(["status", "--json"], &[(
+            "GARC_CAMP_REST_JSON",
+            &format!(
+                r#"[{{"id":"rest-agent","instance_name":"rest-agent._camp._tcp.local.","role":"agent","project":"{}","branch":"main","status":"idle","capabilities":[],"port":7000,"addresses":["127.0.0.1"],"metadata":{{"intent_branch":"feature-login"}}}}]"#,
+                harness.project_name
+            ),
+        )])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["peers"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["peers"][0]["agent_id"], "rest-agent");
+    assert_eq!(json["peers"][0]["intent_branch"], "feature-login");
+    Ok(())
+}
+
+#[test]
+fn up_json_emits_preamble_and_delegates() -> Result<()> {
+    let harness = TestRepo::new("_garc-up-preamble._tcp.local.")?;
+    let camp_dir = harness.write_camp_stub("#!/bin/sh\nprintf '{\"camp\":\"up\"}\\n'\nexit 0\n")?;
+
+    let output = harness.run_with_env(
+        ["up", "--json"],
+        &[("PATH", camp_dir.to_string_lossy().as_ref())],
+    )?;
+    let stdout = String::from_utf8(output.stdout)?;
+
+    assert!(output.status.success());
+    assert!(stdout.contains("\"status\": \"delegating\""));
+    assert!(stdout.contains("\"delegated_command\": \"camp up --config"));
+    assert!(stdout.contains("{\"camp\":\"up\"}"));
+    Ok(())
+}
+
+#[test]
 fn checkout_returns_json_when_branch_is_clear() -> Result<()> {
     let harness = TestRepo::new("_garc-checkout-clear._tcp.local.")?;
     harness.create_branch("feature-login")?;
@@ -409,6 +477,19 @@ impl TestRepo {
             .output()?)
     }
 
+    fn run_with_env<I, S>(&self, args: I, envs: &[(&str, &str)]) -> Result<std::process::Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_garc"));
+        command.args(args).current_dir(&self.repo_dir);
+        for (key, value) in envs {
+            command.env(key, value);
+        }
+        Ok(command.output()?)
+    }
+
     fn run_with_snapshot<I, S>(&self, args: I, snapshot: Value) -> Result<std::process::Output>
     where
         I: IntoIterator<Item = S>,
@@ -474,6 +555,21 @@ impl TestRepo {
         let next_index = fs::read_dir(&history_dir)?.count() + 1;
         fs::write(history_dir.join(format!("{next_index:020}.json")), trace)?;
         Ok(())
+    }
+
+    fn write_camp_stub(&self, body: &str) -> Result<PathBuf> {
+        let bin_dir = self.repo_dir.join("test-bin");
+        fs::create_dir_all(&bin_dir)?;
+        let camp_path = bin_dir.join("camp");
+        fs::write(&camp_path, body)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&camp_path)?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&camp_path, perms)?;
+        }
+        Ok(bin_dir)
     }
 
     fn current_branch(&self) -> Result<String> {
