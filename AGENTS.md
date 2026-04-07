@@ -87,6 +87,28 @@ Support at least the states described by the spec:
 - Reuse standard library and existing modules before adding helpers.
 - No new dependencies beyond the spec unless clearly justified.
 
+## Commit and agent-knowledge rules
+- Treat git history as part of the agent memory for this repo.
+- Every meaningful change should be committed with a Conventional Commit style subject:
+  - `feat: ...`
+  - `fix: ...`
+  - `refactor: ...`
+  - `test: ...`
+  - `docs: ...`
+  - `ci: ...`
+  - `chore: ...`
+- Prefer an optional scope when it improves clarity, e.g. `feat(mesh): ...` or `fix(cli): ...`.
+- The first line should say **why** the change exists, not just what files changed.
+- For non-trivial commits, include brief lore-style trailers so future agents can recover intent quickly:
+  - `Constraint: ...`
+  - `Rejected: ...`
+  - `Confidence: low|medium|high`
+  - `Scope-risk: narrow|moderate|broad`
+  - `Directive: ...`
+  - `Tested: ...`
+  - `Not-tested: ...`
+- Do not batch unrelated changes into one commit; preserve a clean, searchable knowledge trail for later agents.
+
 ## Testing and verification
 Before claiming work complete, run the smallest relevant full set:
 - `cargo fmt --all`
