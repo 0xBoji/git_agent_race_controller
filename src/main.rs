@@ -295,6 +295,8 @@ fn run_checkout(
         }
     };
 
+    // Persisting the last checkout trace is best-effort debugging state. A write failure should
+    // never flip a resolved checkout back into an error path after Git state already changed.
     let _ = write_last_checkout_trace(&repo.git_dir, &output);
     print_checkout(&output, json)
 }
