@@ -57,6 +57,22 @@ fn trace_returns_latest_and_history_json() -> Result<()> {
 }
 
 #[test]
+fn trace_limit_truncates_history_json() -> Result<()> {
+    let harness = TestRepo::new("_garc-trace-limit._tcp.local.")?;
+    harness.write_trace("feature-a", "checked_out")?;
+    harness.write_trace("feature-b", "diverted")?;
+
+    let output = harness.run(["trace", "--history", "--limit", "1", "--json"])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["history"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["history"][0]["requested_branch"], "feature-b");
+    Ok(())
+}
+
+#[test]
 fn checkout_reports_skipped_when_camp_update_is_unavailable() -> Result<()> {
     let harness = TestRepo::new("_garc-checkout-update-skipped._tcp.local.")?;
     harness.create_branch("feature-login")?;

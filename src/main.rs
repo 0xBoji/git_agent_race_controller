@@ -74,7 +74,7 @@ fn run(cli: &Cli) -> Result<()> {
             args.claim_settle_ms,
         ),
         Command::Status(args) => run_status(args.json, &args.config),
-        Command::Trace(args) => run_trace(args.json, args.history),
+        Command::Trace(args) => run_trace(args.json, args.history, args.limit),
         Command::Up(args) => run_up(args.json, &args.config),
         Command::Commit(args) => run_commit(args.json, &args.config, &args.passthrough),
     }
@@ -338,11 +338,11 @@ fn run_status(json: bool, config_arg: &std::path::Path) -> Result<()> {
     print_status(&output, json)
 }
 
-fn run_trace(json: bool, history: bool) -> Result<()> {
+fn run_trace(json: bool, history: bool, limit: Option<usize>) -> Result<()> {
     let repo = open_repo_from(&env::current_dir().context("failed to resolve current directory")?)?;
     let latest = read_last_checkout_trace(&repo.git_dir)?;
     let history_entries = if history {
-        read_trace_history(&repo.git_dir)?
+        read_trace_history(&repo.git_dir, limit)?
     } else {
         Vec::new()
     };

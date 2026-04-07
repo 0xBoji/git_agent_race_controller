@@ -85,6 +85,9 @@ pub struct TraceArgs {
     /// Return bounded recent history instead of only the latest trace.
     #[arg(long)]
     pub history: bool,
+    /// Limit the number of returned history entries when used with --history.
+    #[arg(long)]
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Args)]

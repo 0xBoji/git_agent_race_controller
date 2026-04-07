@@ -320,7 +320,7 @@ pub fn read_last_checkout_trace(git_dir: &Path) -> Result<Option<Value>> {
     read_json_file_if_exists(&path)
 }
 
-pub fn read_trace_history(git_dir: &Path) -> Result<Vec<Value>> {
+pub fn read_trace_history(git_dir: &Path, limit: Option<usize>) -> Result<Vec<Value>> {
     let history_dir = trace_history_dir(git_dir);
     let mut paths = match fs::read_dir(&history_dir) {
         Ok(entries) => entries
@@ -345,6 +345,9 @@ pub fn read_trace_history(git_dir: &Path) -> Result<Vec<Value>> {
     };
     paths.sort();
     paths.reverse();
+    if let Some(limit) = limit {
+        paths.truncate(limit);
+    }
 
     paths
         .into_iter()
