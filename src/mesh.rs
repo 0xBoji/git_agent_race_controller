@@ -257,6 +257,8 @@ pub fn read_local_claim_state(git_dir: &Path) -> Result<Option<LocalClaimState>>
 }
 
 pub fn write_last_checkout_trace(git_dir: &Path, trace: &impl Serialize) -> Result<PathBuf> {
+    // This file is intentionally overwrite-only and local to one repository clone. It exists to
+    // help operators inspect the most recent checkout arbitration, not to coordinate future ones.
     let path = garc_state_dir(git_dir).join(LAST_TRACE_FILE_NAME);
     fs::create_dir_all(garc_state_dir(git_dir)).with_context(|| {
         format!(
