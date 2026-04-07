@@ -32,14 +32,14 @@ use crate::{
     installer::install_post_checkout_hook,
     mesh::{
         LocalClaimState, discover_peers, discover_peers_with_retry,
-        discover_peers_with_retry_metadata, publish_branch_claim, read_local_claim_state,
-        update_local_branch, write_last_checkout_trace,
+        discover_peers_with_retry_metadata, publish_branch_claim, read_last_checkout_trace,
+        read_local_claim_state, read_trace_history, update_local_branch, write_last_checkout_trace,
     },
     output::{
         ActiveClaimSummary, CheckoutOutput, CheckoutStatus, CommitOutput, CommitStatus,
         DecisionBasis, DecisionTraceEntry, InitOutput, ObservedPeerOutput, OccupiedBranchSummary,
-        StatusOutput, UpOutput, print_checkout, print_commit, print_error, print_init,
-        print_status, print_up,
+        StatusOutput, TraceOutput, UpOutput, print_checkout, print_commit, print_error, print_init,
+        print_status, print_trace, print_up,
     },
 };
 
@@ -73,6 +73,7 @@ fn run(cli: &Cli) -> Result<()> {
             args.claim_settle_ms,
         ),
         Command::Status(args) => run_status(args.json, &args.config),
+        Command::Trace(args) => run_trace(args.json, args.history),
         Command::Up(args) => run_up(args.json, &args.config),
         Command::Commit(args) => run_commit(args.json, &args.config, &args.passthrough),
     }
@@ -324,6 +325,23 @@ fn run_status(json: bool, config_arg: &std::path::Path) -> Result<()> {
         peers,
     };
     print_status(&output, json)
+}
+
+fn run_trace(json: bool, history: bool) -> Result<()> {
+    let repo = open_repo_from(&env::current_dir().context("failed to resolve current directory")?)?;
+    let latest = read_last_checkout_trace(&repo.git_dir)?;
+    let history_entries = if history {
+        read_trace_history(&repo.git_dir)?
+    } else {
+        Vec::new()
+    };
+
+    let output = TraceOutput {
+        status: if latest.is_some() { "ok" } else { "empty" },
+        latest,
+        history: history_entries,
+    };
+    print_trace(&output, json)
 }
 
 fn run_up(json: bool, config_arg: &std::path::Path) -> Result<()> {
