@@ -1,11 +1,13 @@
 use std::{
     collections::BTreeMap,
-    env, thread,
+    env, fs,
+    path::{Path, PathBuf},
+    thread,
     time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
-use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
+use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent, ServiceInfo, UnregisterStatus};
 use serde::{Deserialize, Serialize};
 
 use crate::{config::CampConfig, errors::GarcError};
@@ -13,12 +15,18 @@ use crate::{config::CampConfig, errors::GarcError};
 const AGENT_ID: &str = "agent_id";
 const CURRENT_BRANCH: &str = "current_branch";
 const CURRENT_PROJECT: &str = "current_project";
+const INTENT_BRANCH: &str = "intent_branch";
+const CLAIM_PORT_FALLBACK: u16 = 7000;
+const CLAIM_STATE_FILE_NAME: &str = "claim-state.json";
+const CLAIM_DISCOVERY_RETRIES: usize = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeshPeer {
     pub agent_id: String,
     pub current_branch: String,
     pub current_project: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intent_branch: Option<String>,
     pub fullname: String,
     pub port: u16,
 }
@@ -35,10 +43,141 @@ impl MeshPeer {
             agent_id,
             current_branch,
             current_project,
+            intent_branch: optional_property(service, INTENT_BRANCH),
             fullname,
             port: service.get_port(),
         })
     }
+}
+
+pub struct ClaimHandle {
+    daemon: Option<ServiceDaemon>,
+    fullname: Option<String>,
+    settle_ms: Option<u64>,
+    claim_state_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalClaimState {
+    pub agent_id: String,
+    pub current_project: String,
+    pub current_branch: String,
+    pub intent_branch: String,
+}
+
+impl ClaimHandle {
+    #[must_use]
+    pub fn settle_required(&self) -> bool {
+        self.settle_ms.is_some()
+    }
+
+    pub fn settle(&self) {
+        if let Some(settle_ms) = self.settle_ms {
+            thread::sleep(Duration::from_millis(settle_ms));
+        }
+    }
+}
+
+impl Drop for ClaimHandle {
+    fn drop(&mut self) {
+        if let Some(path) = &self.claim_state_path {
+            let _ = fs::remove_file(path);
+        }
+
+        if let (Some(daemon), Some(fullname)) = (&self.daemon, &self.fullname)
+            && let Ok(receiver) = daemon.unregister(fullname)
+        {
+            let _ = receiver
+                .recv_timeout(Duration::from_millis(100))
+                .map(|status| matches!(status, UnregisterStatus::OK | UnregisterStatus::NotFound));
+        }
+
+        if let Some(daemon) = &self.daemon {
+            let _ = daemon.shutdown();
+        }
+    }
+}
+
+pub fn publish_branch_claim(
+    config: &CampConfig,
+    git_dir: &Path,
+    branch: &str,
+    claim_settle_ms: u64,
+) -> Result<ClaimHandle> {
+    if env::var_os("GARC_MESH_SNAPSHOT_JSON").is_some() {
+        return Ok(ClaimHandle {
+            daemon: None,
+            fullname: None,
+            settle_ms: None,
+            claim_state_path: None,
+        });
+    }
+
+    let daemon = if let Some(mdns_port) = config.mdns_port() {
+        ServiceDaemon::new_with_port(mdns_port)
+            .with_context(|| format!("failed to start mDNS claim daemon on port `{mdns_port}`"))?
+    } else {
+        ServiceDaemon::new().context("failed to start mDNS claim daemon")?
+    };
+
+    // The claim record uses its own service instance name so it can coexist with the steady-state
+    // CAMP announcement, but the canonical agent identity still lives in TXT metadata.
+    let instance_name = format!("garc-claim-{}", sanitize_dns_label(&config.agent.id));
+    let host_name = format!("{instance_name}.local.");
+    let properties = [
+        (AGENT_ID, config.agent.id.as_str()),
+        (CURRENT_PROJECT, config.agent.project.as_str()),
+        (CURRENT_BRANCH, config.agent.branch.as_str()),
+        (INTENT_BRANCH, branch),
+    ];
+    let service = ServiceInfo::new(
+        config.service_type(),
+        &instance_name,
+        &host_name,
+        "",
+        config.agent.port.unwrap_or(CLAIM_PORT_FALLBACK),
+        &properties[..],
+    )
+    .context("failed to construct mDNS branch-claim service")?
+    .enable_addr_auto();
+    let fullname = service.get_fullname().to_owned();
+
+    daemon
+        .register(service)
+        .context("failed to publish temporary branch-claim service")?;
+
+    let claim_state = LocalClaimState {
+        agent_id: config.agent.id.clone(),
+        current_project: config.agent.project.clone(),
+        current_branch: config.agent.branch.clone(),
+        intent_branch: branch.to_owned(),
+    };
+    let claim_state_path = write_local_claim_state(git_dir, &claim_state)?;
+
+    Ok(ClaimHandle {
+        daemon: Some(daemon),
+        fullname: Some(fullname),
+        settle_ms: Some(claim_settle_ms),
+        claim_state_path: Some(claim_state_path),
+    })
+}
+
+pub fn discover_peers_with_retry(config: &CampConfig) -> Result<Vec<MeshPeer>> {
+    let mut last_error = None;
+
+    for attempt in 0..CLAIM_DISCOVERY_RETRIES {
+        match discover_peers(config) {
+            Ok(peers) => return Ok(peers),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt + 1 < CLAIM_DISCOVERY_RETRIES {
+                    thread::sleep(Duration::from_millis(25));
+                }
+            }
+        }
+    }
+
+    Err(last_error.expect("retry loop should record at least one discovery error"))
 }
 
 pub fn discover_peers(config: &CampConfig) -> Result<Vec<MeshPeer>> {
@@ -50,7 +189,13 @@ pub fn discover_peers(config: &CampConfig) -> Result<Vec<MeshPeer>> {
 
     let service_type = config.service_type().to_owned();
     let timeout = Duration::from_millis(config.discovery_timeout_ms());
-    let daemon = ServiceDaemon::new().context("failed to start mDNS discovery daemon")?;
+    let daemon = if let Some(mdns_port) = config.mdns_port() {
+        ServiceDaemon::new_with_port(mdns_port).with_context(|| {
+            format!("failed to start mDNS discovery daemon on port `{mdns_port}`")
+        })?
+    } else {
+        ServiceDaemon::new().context("failed to start mDNS discovery daemon")?
+    };
     let receiver = daemon
         .browse(&service_type)
         .with_context(|| format!("failed to browse mDNS service type `{service_type}`"))?;
@@ -91,6 +236,21 @@ pub fn update_local_branch(
     config.save_to_path(config_path)
 }
 
+pub fn read_local_claim_state(git_dir: &Path) -> Result<Option<LocalClaimState>> {
+    let path = claim_state_path(git_dir);
+    match fs::read_to_string(&path) {
+        Ok(contents) => {
+            let claim = serde_json::from_str(&contents).with_context(|| {
+                format!("failed to parse local claim state `{}`", path.display())
+            })?;
+            Ok(Some(claim))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error)
+            .with_context(|| format!("failed to read local claim state `{}`", path.display())),
+    }
+}
+
 fn required_property(
     service: &ResolvedService,
     fullname: &str,
@@ -117,4 +277,54 @@ fn required_property(
         }
         .into()
     })
+}
+
+fn optional_property(service: &ResolvedService, field: &'static str) -> Option<String> {
+    service
+        .get_properties()
+        .iter()
+        .find(|property| property.key() == field)
+        .and_then(|property| property.val())
+        .and_then(|value| String::from_utf8(value.to_vec()).ok())
+}
+
+fn sanitize_dns_label(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches('-');
+    if trimmed.is_empty() {
+        "agent".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn write_local_claim_state(git_dir: &Path, claim_state: &LocalClaimState) -> Result<PathBuf> {
+    let path = claim_state_path(git_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create claim state directory `{}`",
+                parent.display()
+            )
+        })?;
+    }
+
+    let contents = serde_json::to_string_pretty(claim_state)
+        .context("failed to serialize local claim state")?;
+    fs::write(&path, format!("{contents}\n"))
+        .with_context(|| format!("failed to write local claim state `{}`", path.display()))?;
+    Ok(path)
+}
+
+fn claim_state_path(git_dir: &Path) -> PathBuf {
+    git_dir.join("garc").join(CLAIM_STATE_FILE_NAME)
 }
