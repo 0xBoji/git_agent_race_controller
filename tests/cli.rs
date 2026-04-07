@@ -73,6 +73,38 @@ fn trace_limit_truncates_history_json() -> Result<()> {
 }
 
 #[test]
+fn trace_branch_filter_limits_history_to_matching_branch() -> Result<()> {
+    let harness = TestRepo::new("_garc-trace-branch-filter._tcp.local.")?;
+    harness.write_trace("feature-a", "checked_out")?;
+    harness.write_trace("feature-b", "diverted")?;
+
+    let output = harness.run(["trace", "--history", "--branch", "feature-a", "--json"])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["history"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["history"][0]["requested_branch"], "feature-a");
+    Ok(())
+}
+
+#[test]
+fn trace_status_filter_limits_history_to_matching_status() -> Result<()> {
+    let harness = TestRepo::new("_garc-trace-status-filter._tcp.local.")?;
+    harness.write_trace("feature-a", "checked_out")?;
+    harness.write_trace("feature-b", "diverted")?;
+
+    let output = harness.run(["trace", "--history", "--status", "diverted", "--json"])?;
+    let json: Value = serde_json::from_slice(&output.stdout)?;
+
+    assert!(output.status.success());
+    assert_eq!(json["status"], "ok");
+    assert_eq!(json["history"].as_array().map(Vec::len), Some(1));
+    assert_eq!(json["history"][0]["status"], "diverted");
+    Ok(())
+}
+
+#[test]
 fn checkout_reports_skipped_when_camp_update_is_unavailable() -> Result<()> {
     let harness = TestRepo::new("_garc-checkout-update-skipped._tcp.local.")?;
     harness.create_branch("feature-login")?;

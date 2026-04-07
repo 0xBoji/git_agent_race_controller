@@ -200,6 +200,8 @@ Recommended behaviors:
 - default mode returns the most recent persisted checkout trace
 - `--history` returns a bounded list of recent persisted traces
 - `--limit <n>` further caps the returned history length when `--history` is used
+- `--branch <name>` filters traces to a specific requested/actual branch family
+- `--status <state>` filters traces to a specific checkout status
 - `--json` emits stable machine-readable output
 
 Recommended JSON fields:
@@ -215,6 +217,7 @@ Suggested statuses:
 
 If no persisted trace exists yet, the command should return a structured empty response rather than failing.
 If `--limit` is provided together with `--history`, the `history` array should contain at most `n` entries ordered from newest to oldest.
+If `--branch` and/or `--status` are provided, filtering should apply before history limiting.
 
 ## 8. Edge Cases & Constraints
 
@@ -262,6 +265,7 @@ The implementation must include automated coverage for at least the following:
 - bounded trace-history pruning behavior
 - `garc trace` latest/history output behavior
 - `garc trace --limit <n>` history truncation behavior
+- `garc trace --branch` / `--status` filtering behavior
 - hook installer idempotence remains intact
 
 ## 10. Future Roadmap

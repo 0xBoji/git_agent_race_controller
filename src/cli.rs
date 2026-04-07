@@ -88,6 +88,12 @@ pub struct TraceArgs {
     /// Limit the number of returned history entries when used with --history.
     #[arg(long)]
     pub limit: Option<usize>,
+    /// Filter traces to a matching requested/actual branch.
+    #[arg(long)]
+    pub branch: Option<String>,
+    /// Filter traces to a matching checkout status.
+    #[arg(long)]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Args)]

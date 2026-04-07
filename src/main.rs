@@ -17,6 +17,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use serde_json::Value;
 
 use crate::{
     cli::{Cli, Command},
@@ -75,7 +76,13 @@ fn run(cli: &Cli) -> Result<()> {
             args.claim_settle_ms,
         ),
         Command::Status(args) => run_status(args.json, &args.config),
-        Command::Trace(args) => run_trace(args.json, args.history, args.limit),
+        Command::Trace(args) => run_trace(
+            args.json,
+            args.history,
+            args.limit,
+            args.branch.as_deref(),
+            args.status.as_deref(),
+        ),
         Command::Up(args) => run_up(args.json, &args.config),
         Command::Commit(args) => run_commit(args.json, &args.config, &args.passthrough),
     }
@@ -344,14 +351,26 @@ fn run_status(json: bool, config_arg: &std::path::Path) -> Result<()> {
     print_status(&output, json)
 }
 
-fn run_trace(json: bool, history: bool, limit: Option<usize>) -> Result<()> {
+fn run_trace(
+    json: bool,
+    history: bool,
+    limit: Option<usize>,
+    branch_filter: Option<&str>,
+    status_filter: Option<&str>,
+) -> Result<()> {
     let repo = open_repo_from(&env::current_dir().context("failed to resolve current directory")?)?;
-    let latest = read_last_checkout_trace(&repo.git_dir)?;
-    let history_entries = if history {
-        read_trace_history(&repo.git_dir, limit)?
+    let latest = read_last_checkout_trace(&repo.git_dir)?
+        .filter(|trace| trace_matches_filters(trace, branch_filter, status_filter));
+    let history_entries: Vec<Value> = if history {
+        read_trace_history(&repo.git_dir, None)?
+            .into_iter()
+            .filter(|trace| trace_matches_filters(trace, branch_filter, status_filter))
+            .take(limit.unwrap_or(usize::MAX))
+            .collect()
     } else {
         Vec::new()
     };
+    let latest = latest.or_else(|| history_entries.first().cloned());
 
     let output = TraceOutput {
         status: if latest.is_some() { "ok" } else { "empty" },
@@ -359,6 +378,20 @@ fn run_trace(json: bool, history: bool, limit: Option<usize>) -> Result<()> {
         history: history_entries,
     };
     print_trace(&output, json)
+}
+
+fn trace_matches_filters(
+    trace: &Value,
+    branch_filter: Option<&str>,
+    status_filter: Option<&str>,
+) -> bool {
+    let branch_matches = branch_filter.is_none_or(|branch| {
+        trace.get("requested_branch").and_then(Value::as_str) == Some(branch)
+            || trace.get("actual_branch").and_then(Value::as_str) == Some(branch)
+    });
+    let status_matches = status_filter
+        .is_none_or(|status| trace.get("status").and_then(Value::as_str) == Some(status));
+    branch_matches && status_matches
 }
 
 fn run_up(json: bool, config_arg: &std::path::Path) -> Result<()> {
