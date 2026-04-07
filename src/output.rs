@@ -323,6 +323,7 @@ mod tests {
         assert!(json.contains("\"claim_winner\": \"qa-agent-01\""));
         assert!(json.contains("\"decision_trace\": ["));
         assert!(json.contains("\"decision_trace_entries\": ["));
+        assert!(json.contains("\"at_ms\": 0"));
         assert!(json.contains("\"actual_branch\": \"feature-login--coder-01\""));
     }
 
